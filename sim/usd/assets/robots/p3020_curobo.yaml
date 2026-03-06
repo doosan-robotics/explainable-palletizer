@@ -1,0 +1,100 @@
+# cuRobo MotionGen robot configuration for Doosan P3020
+# 6-DOF industrial arm (joint_4 is fixed; 5 active joints)
+# CudaRobotGeneratorConfig + CSpaceConfig schema
+
+robot_cfg:
+  kinematics:
+    # Paths below are overridden at runtime by P3020Robot / MotionInterface.
+    urdf_path: sim/robot/urdf/p3020.urdf
+    asset_root_path: sim/robot
+    base_link: base_link
+    ee_link: link_6
+    # link_names: additional links to compute FK for (ee_link is auto-added)
+    use_global_cumul: true
+    collision_spheres:
+      base_link:
+        - center: [0.0, 0.0, 0.1]
+          radius: 0.12
+        - center: [0.0, 0.0, 0.25]
+          radius: 0.10
+      link_1:
+        - center: [0.0, 0.0, 0.0]
+          radius: 0.12
+        - center: [0.0, 0.1, 0.0]
+          radius: 0.10
+        - center: [0.0, 0.2, 0.0]
+          radius: 0.09
+      link_2:
+        - center: [0.0, 0.0, 0.0]
+          radius: 0.11
+        - center: [0.25, 0.0, 0.0]
+          radius: 0.10
+        - center: [0.5, 0.0, 0.0]
+          radius: 0.10
+        - center: [0.75, 0.0, 0.0]
+          radius: 0.10
+        - center: [1.01, 0.0, 0.0]
+          radius: 0.10
+      link_3:
+        - center: [0.0, 0.0, 0.0]
+          radius: 0.10
+        - center: [0.0, -0.3, 0.0]
+          radius: 0.09
+        - center: [0.0, -0.6, 0.0]
+          radius: 0.09
+      link_4:
+        - center: [0.0, 0.0, 0.0]
+          radius: 0.09
+      link_5:
+        - center: [0.0, 0.0, 0.0]
+          radius: 0.08
+        - center: [0.0, -0.065, 0.0]
+          radius: 0.07
+      link_6:
+        - center: [0.0, 0.0, 0.0]
+          radius: 0.07
+        - center: [0.0, 0.0, -0.05]
+          radius: 0.06
+        # OnRobot VGC10 vacuum gripper attached at link_6 flange
+        # Body extends ~170mm in -Z (tool axis), 116mm square cross-section
+        - center: [0.0, 0.0, -0.09]
+          radius: 0.07
+        - center: [0.0, 0.0, -0.14]
+          radius: 0.07
+        - center: [0.0, 0.0, -0.19]
+          radius: 0.065
+        # Corner spheres to cover rectangular body cross-section
+        - center: [0.04, 0.04, -0.10]
+          radius: 0.055
+        - center: [-0.04, 0.04, -0.10]
+          radius: 0.055
+        - center: [0.04, -0.04, -0.10]
+          radius: 0.055
+        - center: [-0.04, -0.04, -0.10]
+          radius: 0.055
+        # Suction cup face (~210mm from link_6)
+        - center: [0.0, 0.0, -0.23]
+          radius: 0.058
+    self_collision_ignore:
+      base_link: [link_1]
+      link_1: [link_2]
+      link_2: [link_3]
+      link_3: [link_4]
+      link_4: [link_5]
+      link_5: [link_6]
+    cspace:
+      joint_names:
+        - joint_1
+        - joint_2
+        - joint_3
+        - joint_5
+        - joint_6
+      retract_config: [0.0, 0.0, 0.0, 0.0, 0.0]
+      # joint order: joint_1, joint_2(shoulder), joint_3(elbow), joint_5, joint_6
+      # High weight on joint_2 → planner avoids swinging shoulder into conveyor zone
+      # Low weight on joint_3 → planner freely uses elbow for compact reach
+      null_space_weight: [1.0, 4.0, 0.5, 1.0, 0.5]
+      cspace_distance_weight: [1.0, 4.0, 0.5, 1.0, 0.5]
+      max_jerk: 500.0
+      max_acceleration: 15.0
+      velocity_scale: 1.0

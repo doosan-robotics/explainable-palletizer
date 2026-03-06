@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DR AI Palletizer</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+    font-size: 13px;
+    background: #111;
+    color: #ccc;
+    height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    overflow: hidden;
+}
+header {
+    background: #1a1a1a;
+    border-bottom: 1px solid #2a2a2a;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+header h1 { font-size: 14px; color: #76b900; font-weight: 600; }
+.pill {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #222;
+    border: 1px solid #333;
+}
+.pill.ok  { color: #76b900; border-color: #76b900; }
+.pill.err { color: #f44;    border-color: #f44; }
+.pill.loading { color: #fa0; border-color: #fa0; }
+#services { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+
+main {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    overflow: hidden;
+}
+
+/* ── Camera ── */
+#camera-panel {
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+#camera-canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
+#camera-overlay {
+    position: absolute;
+    top: 8px; left: 8px;
+    font-size: 11px;
+    color: #76b900;
+    background: rgba(0,0,0,0.6);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+#camera-status {
+    position: absolute;
+    bottom: 8px; left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: #888;
+    background: rgba(0,0,0,0.6);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+/* ── Right panel ── */
+#controls {
+    background: #151515;
+    border-left: 1px solid #2a2a2a;
+    overflow-y: auto;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.card {
+    background: #1c1c1c;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 10px;
+}
+.card h2 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #666;
+    margin-bottom: 8px;
+}
+.btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+button {
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    color: #ccc;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+}
+button:hover { background: #333; color: #fff; }
+button:active { background: #444; }
+button.primary { background: #1a3a00; border-color: #76b900; color: #76b900; }
+button.primary:hover { background: #244f00; }
+.field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; }
+.field label { font-size: 11px; color: #666; }
+input[type=text] {
+    background: #111;
+    border: 1px solid #333;
+    color: #ccc;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: inherit;
+    width: 100%;
+}
+input:focus { outline: none; border-color: #76b900; }
+.kv { display: flex; justify-content: space-between; font-size: 11px; line-height: 1.8; }
+.kv .k { color: #555; }
+.kv .v { color: #76b900; text-align: right; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+textarea {
+    background: #111;
+    border: 1px solid #333;
+    color: #ccc;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: inherit;
+    width: 100%;
+    resize: vertical;
+}
+textarea:focus { outline: none; border-color: #76b900; }
+#plan-output {
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    color: #76b900;
+    max-height: 180px;
+    overflow-y: auto;
+    display: none;
+}
+
+/* ── Log ── */
+footer {
+    background: #0d0d0d;
+    border-top: 1px solid #2a2a2a;
+    padding: 6px 12px;
+    height: 80px;
+    overflow-y: auto;
+    font-size: 11px;
+    color: #666;
+}
+.log-line { line-height: 1.5; }
+.log-line.ok   { color: #76b900; }
+.log-line.err  { color: #f44; }
+.log-line.info { color: #aaa; }
+</style>
+</head>
+<body>
+
+<header>
+    <h1>DR AI Palletizer</h1>
+    <div id="sim-time" class="pill loading">sim --</div>
+    <div id="services"></div>
+</header>
+
+<main>
+    <div id="camera-panel">
+        <canvas id="camera-canvas" width="1280" height="720"></canvas>
+        <div id="camera-overlay">LIVE</div>
+        <div id="camera-status">connecting...</div>
+    </div>
+
+    <div id="controls">
+        <div class="card">
+            <h2>Simulation</h2>
+            <div class="btn-row">
+                <button class="primary" onclick="simPost('/sim/play')">&#9654; Play</button>
+                <button onclick="simPost('/sim/pause')">&#9646;&#9646; Pause</button>
+                <button onclick="simPost('/sim/reset')">&#8635; Reset</button>
+                <button onclick="simPost('/sim/step', {num_steps:1})">&#8594;1</button>
+                <button onclick="simPost('/sim/step', {num_steps:10})">&#8594;10</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Robot</h2>
+            <div class="btn-row">
+                <button onclick="simPost('/sim/robot/home')">Home</button>
+                <button onclick="simPost('/sim/boxes/spawn')">Spawn Box</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Move Joints (cuRobo)</h2>
+            <div class="field">
+                <label>J1 J2 J3 J4 J5  (radians, space-separated)</label>
+                <input type="text" id="joint-targets" value="0.5 0.3 -0.2 0.4 -0.1">
+            </div>
+            <div class="btn-row">
+                <button onclick="moveJoints(false)">Plan only</button>
+                <button class="primary" onclick="moveJoints(true)">Plan + Execute</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Move Cartesian (cuRobo)</h2>
+            <div class="field">
+                <label>Position  x y z (metres)</label>
+                <input type="text" id="cart-pos" value="0.5 0.0 0.5">
+            </div>
+            <div class="field">
+                <label>Quaternion  w x y z</label>
+                <input type="text" id="cart-quat" value="1.0 0.0 0.0 0.0">
+            </div>
+            <div class="btn-row">
+                <button onclick="moveCartesian(false)">Plan only</button>
+                <button class="primary" onclick="moveCartesian(true)">Plan + Execute</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Inference</h2>
+            <div class="field">
+                <label>Scenario</label>
+                <textarea id="scenario-text" rows="3">Place 3 boxes in a 3x1 layer on a pallet at position (1.0, 0.0, 0.1).</textarea>
+            </div>
+            <div class="field">
+                <label>System prompt (optional)</label>
+                <input type="text" id="system-prompt" placeholder="leave blank for default">
+            </div>
+            <div class="btn-row">
+                <button class="primary" onclick="getPlan()">Get Plan</button>
+            </div>
+            <div id="plan-output"></div>
+        </div>
+
+        <div class="card">
+            <h2>State</h2>
+            <div id="state-display"></div>
+        </div>
+    </div>
+</main>
+
+<footer id="log"></footer>
+
+<script>
+// ── Logging ───────────────────────────────────────────────────────────────────
+function log(msg, cls = 'info') {
+    const footer = document.getElementById('log');
+    const line = document.createElement('div');
+    line.className = 'log-line ' + cls;
+    line.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+    footer.appendChild(line);
+    footer.scrollTop = footer.scrollHeight;
+    if (footer.children.length > 200) footer.removeChild(footer.children[0]);
+}
+
+// ── Sim API helpers ───────────────────────────────────────────────────────────
+async function simPost(path, body) {
+    try {
+        const opts = { method: 'POST', headers: {'Content-Type': 'application/json'} };
+        if (body) opts.body = JSON.stringify(body);
+        const r = await fetch(path, opts);
+        const data = await r.json();
+        if (data.error) { log(path + ' -> ' + data.error, 'err'); return null; }
+        log(path + ' -> ' + JSON.stringify(data), 'ok');
+        return data;
+    } catch (e) { log(path + ' failed: ' + e.message, 'err'); return null; }
+}
+
+function parseFloats(str, expected) {
+    const vals = str.trim().split(/\s+/).map(Number);
+    if (vals.length !== expected || vals.some(isNaN)) return null;
+    return vals;
+}
+
+async function moveJoints(execute) {
+    const target = parseFloats(document.getElementById('joint-targets').value, 5);
+    if (!target) { log('Need exactly 5 joint angles in radians', 'err'); return; }
+    const data = await simPost('/sim/robot/move_planned', {target, execute});
+    if (data) log('Trajectory: ' + data.waypoints + ' waypoints', 'ok');
+}
+
+async function moveCartesian(execute) {
+    const position   = parseFloats(document.getElementById('cart-pos').value, 3);
+    const quaternion = parseFloats(document.getElementById('cart-quat').value, 4);
+    if (!position)   { log('Position needs 3 values (x y z)', 'err'); return; }
+    if (!quaternion) { log('Quaternion needs 4 values (w x y z)', 'err'); return; }
+    const data = await simPost('/sim/robot/move_cartesian', {position, quaternion, execute});
+    if (data) log('Trajectory: ' + data.waypoints + ' waypoints', 'ok');
+}
+
+// ── Health polling ────────────────────────────────────────────────────────────
+async function pollHealth() {
+    const svcs = document.getElementById('services');
+    const results = await Promise.allSettled([
+        fetch('/sim/health').then(r => r.json()),
+        fetch('/api/health').then(r => r.json()),
+    ]);
+    while (svcs.firstChild) svcs.removeChild(svcs.firstChild);
+    ['sim', 'app'].forEach((label, i) => {
+        const el = document.createElement('div');
+        el.className = 'pill ' + (results[i].status === 'fulfilled' ? 'ok' : 'err');
+        el.textContent = label + ' ' + (results[i].status === 'fulfilled' ? '\u2713' : '\u2717');
+        svcs.appendChild(el);
+    });
+}
+
+function setKV(container, key, value) {
+    const row = document.createElement('div');
+    row.className = 'kv';
+    const k = document.createElement('span');
+    k.className = 'k';
+    k.textContent = key;
+    const v = document.createElement('span');
+    v.className = 'v';
+    v.textContent = value;
+    row.appendChild(k);
+    row.appendChild(v);
+    container.appendChild(row);
+}
+
+async function pollState() {
+    try {
+        const [health, state] = await Promise.all([
+            fetch('/sim/health').then(r => r.json()),
+            fetch('/sim/state').then(r => r.json()),
+        ]);
+        const pill = document.getElementById('sim-time');
+        pill.className = 'pill ok';
+        pill.textContent = 't=' + state.sim_time.toFixed(2) + 's  ' + (health.is_playing ? '\u25b6' : '\u23f8');
+
+        const container = document.getElementById('state-display');
+        while (container.firstChild) container.removeChild(container.firstChild);
+        const joints = (state.joint_positions || []).map(v => v.toFixed(3)).join(' ');
+        setKV(container, 'joints', joints || '--');
+        setKV(container, 'boxes', String((state.box_positions || []).length));
+        setKV(container, 'sim_time', state.sim_time.toFixed(3) + ' s');
+    } catch {
+        const pill = document.getElementById('sim-time');
+        pill.className = 'pill err';
+        pill.textContent = 'sim \u2717';
+    }
+}
+
+// ── Inference ─────────────────────────────────────────────────────────────────
+async function getPlan() {
+    const scenario_text = document.getElementById('scenario-text').value.trim();
+    if (!scenario_text) { log('Scenario text is required', 'err'); return; }
+    const raw_prompt = document.getElementById('system-prompt').value.trim();
+    const body = {scenario_text};
+    if (raw_prompt) body.system_prompt = raw_prompt;
+
+    const out = document.getElementById('plan-output');
+    out.style.display = 'none';
+    out.textContent = '';
+    log('POST /api/plan (waiting for inference)...', 'info');
+    const data = await simPost('/api/plan', body);
+    if (data) {
+        out.textContent = data.plan;
+        out.style.display = 'block';
+        log('/api/plan -> model=' + data.model, 'ok');
+    }
+}
+
+// ── Camera WebSocket ──────────────────────────────────────────────────────────
+let ws = null;
+let frameCount = 0;
+let lastFpsTime = Date.now();
+
+function connectCamera() {
+    if (ws) { ws.onclose = null; ws.close(); }
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(proto + '://' + location.host + '/sim/camera/stream?fps=15');
+    ws.binaryType = 'blob';
+
+    const canvas = document.getElementById('camera-canvas');
+    const ctx    = canvas.getContext('2d');
+    const statusEl  = document.getElementById('camera-status');
+    const overlayEl = document.getElementById('camera-overlay');
+
+    ws.onopen  = () => { statusEl.textContent = ''; overlayEl.textContent = 'LIVE'; log('Camera stream connected', 'ok'); };
+    ws.onerror = () => { statusEl.textContent = 'stream error'; };
+    ws.onclose = () => {
+        statusEl.textContent = 'reconnecting...';
+        overlayEl.textContent = '';
+        setTimeout(connectCamera, 3000);
+    };
+    ws.onmessage = (evt) => {
+        frameCount++;
+        const now = Date.now();
+        if (now - lastFpsTime >= 2000) {
+            statusEl.textContent = (frameCount / ((now - lastFpsTime) / 1000)).toFixed(1) + ' fps';
+            frameCount = 0;
+            lastFpsTime = now;
+        }
+        const url = URL.createObjectURL(evt.data);
+        const img = new Image();
+        img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); URL.revokeObjectURL(url); };
+        img.src = url;
+    };
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+log('DR AI Palletizer UI ready');
+connectCamera();
+pollHealth();
+pollState();
+setInterval(pollHealth, 10000);
+setInterval(pollState, 2000);
+</script>
+</body>
+</html>

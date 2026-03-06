@@ -1,0 +1,21 @@
+# Test mode: real Isaac Sim + tiny inference model.
+# Validates the full pipeline end-to-end with minimal VRAM. No HF token needed.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.test.yml up -d
+services:
+  inference-server:
+    environment:
+      - INFERENCE_MODEL=facebook/opt-125m
+      - INFERENCE_PORT=${INFERENCE_PORT:-8200}
+      - VLLM_MAX_MODEL_LEN=512
+      - VLLM_GPU_MEMORY_UTILIZATION=0.2
+      # opt-125m does not support a reasoning parser
+      - VLLM_REASONING_PARSER=
+      - LORA_ADAPTER_PATH=
+
+  app-server:
+    environment:
+      - SIM_SERVER_URL=http://sim-server:8100
+      - INFERENCE_SERVER_URL=http://inference-server:8200/v1
+      - INFERENCE_MODEL=facebook/opt-125m
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000

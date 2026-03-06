@@ -1,0 +1,134 @@
+services:
+  sim-server:
+    build:
+      context: ..
+      dockerfile: docker/sim/Dockerfile
+      args:
+        - CUDA_DEVEL=${SIM_CUDA_DEVEL:-nvidia/cuda:12.8.0-devel-ubuntu24.04}
+        - TORCH_BACKEND=${SIM_TORCH_BACKEND:-cu128}
+    runtime: nvidia
+    ports:
+      - "${SIM_PORT:-8100}:8100"
+    environment:
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      # Same LD_LIBRARY_PATH fix as inference-server: the CUDA devel image
+      # caches compat libs (/usr/local/cuda-*/compat/) via ldconfig at build
+      # time, which shadow the real host driver libs bind-mounted by
+      # nvidia-container-toolkit.  Prioritise the host driver paths so that
+      # Vulkan (libGLX_nvidia.so) and CUDA (libcuda.so.1) load correctly.
+      - LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu:/usr/local/cuda/lib64
+      - SIM_HOST=0.0.0.0
+      - SIM_PORT=8100
+      - SIM_LOAD_ROBOT=${SIM_LOAD_ROBOT:-true}
+      - SIM_SPAWN_BOXES=${SIM_SPAWN_BOXES:-true}
+      - OMNI_KIT_ACCEPT_EULA=YES
+    volumes:
+      - ../sim/src:/workspace/sim/src:ro
+      - ../sim/configs:/workspace/sim/configs:ro
+      - ./sim/entrypoint.sh:/entrypoint.sh:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${SIM_GPU_DEVICE:-0}"]
+              capabilities: [gpu, graphics, display]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/sim/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    networks:
+      - zenith-net
+
+  inference-server:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:latest}
+    runtime: nvidia
+    ports:
+      - "${INFERENCE_PORT:-8200}:8200"
+    environment:
+      - INFERENCE_MODEL=${INFERENCE_MODEL:-nvidia/Cosmos-Reason2-2B}
+      - VLLM_PORT=8200
+      - VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-4096}
+      - VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.5}
+      - VLLM_REASONING_PARSER=${VLLM_REASONING_PARSER:-qwen3}
+      - LORA_ADAPTER_PATH=${LORA_ADAPTER_PATH:-}
+      - LORA_MODEL=${LORA_MODEL:-}
+      - HF_TOKEN=${HF_TOKEN:-}
+      # vLLM >= 0.14 runs ldconfig on /usr/local/cuda-*/compat/ at build time,
+      # which shadows the host libcuda.so.1 on drivers < 600.  Setting
+      # LD_LIBRARY_PATH here ensures the host driver libs (bind-mounted by
+      # nvidia-container-toolkit into /lib/x86_64-linux-gnu) are found first.
+      # See: https://github.com/vllm-project/vllm/issues/32373
+      - LD_LIBRARY_PATH=/lib/x86_64-linux-gnu:/usr/local/cuda/lib64
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    volumes:
+      - ./inference/entrypoint.sh:/entrypoint.sh:ro
+      - ${HF_CACHE_DIR:-model-cache}:/root/.cache/huggingface
+      - ../adapters:/adapters:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${INFERENCE_GPU_DEVICE:-0}"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 600s
+    networks:
+      - zenith-net
+
+  app-server:
+    build:
+      context: ..
+      dockerfile: docker/app/Dockerfile
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - ../app/src:/workspace/app/src:ro
+      - ./app/entrypoint.sh:/entrypoint.sh:ro
+    environment:
+      - SIM_SERVER_URL=http://sim-server:8100
+      - INFERENCE_SERVER_URL=http://inference-server:8200/v1
+      - INFERENCE_MODEL=${INFERENCE_MODEL:-nvidia/Cosmos-Reason2-2B}
+      - LORA_ADAPTER_PATH=${LORA_ADAPTER_PATH:-}
+      - LORA_MODEL=${LORA_MODEL:-}
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+    depends_on:
+      sim-server:
+        condition: service_healthy
+      inference-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - zenith-net
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend/Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      app-server:
+        condition: service_healthy
+    networks:
+      - zenith-net
+
+volumes:
+  model-cache:
+
+networks:
+  zenith-net:
+    driver: bridge

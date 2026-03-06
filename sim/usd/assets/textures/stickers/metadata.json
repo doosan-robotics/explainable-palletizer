@@ -1,0 +1,466 @@
+[
+  {
+    "sticker_name": "Poka Chip snack branding",
+    "image": "box_0001.png",
+    "weight": 3.2,
+    "type": "no_stack",
+    "sticker": "thin cardboard box with Poka Chip snack branding, cartoon mascot printed on side",
+    "visual": "nitrogen-inflated foil bags of thin potato chips burst and scatter brittle contents under vertical pressure, lightweight shrink-wrapped outer packaging crumples without resisting any stacking load"
+  },
+  {
+    "sticker_name": "Saewookkang shrimp crackers",
+    "image": "box_0002.png",
+    "weight": 4.5,
+    "type": "no_stack",
+    "sticker": "bulk pack of Saewookkang shrimp crackers, multiple foil bags visible through shrink wrap",
+    "visual": "multiple air-puffed foil bags of shrimp crackers inside compress and pop under stacking weight, loose shrink wrap bundling offers no rigid frame to support upper loads"
+  },
+  {
+    "sticker_name": "Pepero gift box set",
+    "image": "box_0003.png",
+    "weight": 2.8,
+    "type": "no_stack",
+    "sticker": "Pepero gift box set with transparent window showing chocolate stick packages inside",
+    "visual": "thin chocolate-coated sticks inside snap and fragment under vertical compression, transparent window panel weakens the gift box structure making it unable to bear any stacking load"
+  },
+  {
+    "sticker_name": "Choco Pie",
+    "image": "box_0004.png",
+    "weight": 4.2,
+    "type": "no_stack",
+    "sticker": "Choco Pie 24-pack box with foil-wrapped cake images printed on brown cardboard",
+    "visual": "individually foil-wrapped soft cream cakes inside flatten and deform under pressure, lightweight brown cardboard box with no internal reinforcement collapses under stacking load"
+  },
+  {
+    "sticker_name": "Pringles",
+    "image": "box_0005.png",
+    "weight": 5.1,
+    "type": "no_stack",
+    "sticker": "Pringles 12-can case, cylindrical chip cans arranged vertically in cardboard tray",
+    "visual": "thin-walled cylindrical cans filled with stacked brittle crisps crack and collapse under stacking pressure, fragile chip contents shatter into fragments and open cardboard tray provides no structural support for upper loads"
+  },
+  {
+    "sticker_name": "Crown Kukdas wafer gift",
+    "image": "box_0006.png",
+    "weight": 2.5,
+    "type": "no_stack",
+    "sticker": "Crown Kukdas wafer gift set, delicate layered wafer images on thin glossy box",
+    "visual": "delicate multi-layered wafer sheets with cream filling crumble into fragments under minimal compression, thin glossy gift box provides no internal bracing and collapses flat under any stacking weight"
+  },
+  {
+    "sticker_name": "Honey Butter Chip multi-pack",
+    "image": "box_0007.png",
+    "weight": 3.8,
+    "type": "no_stack",
+    "sticker": "Honey Butter Chip multi-pack bundle, puffy foil bags loosely packed in outer wrap",
+    "visual": "puffy nitrogen-filled foil bags of seasoned chips burst and deflate under pressure, loosely bundled outer wrap has no rigid structure to transfer or support any stacking load"
+  },
+  {
+    "sticker_name": "Kellogg's cereal variety box",
+    "image": "box_0008.png",
+    "weight": 5.5,
+    "type": "no_stack",
+    "sticker": "Kellogg's cereal variety box, 6 inner cereal boxes visible, lightweight cardboard",
+    "visual": "air-cushioned inner bags of brittle cereal flakes crush and compact unevenly inside, thin printed variety box with no corrugated reinforcement buckles immediately under stacking weight"
+  },
+  {
+    "sticker_name": "Oreo cookie bulk pack",
+    "image": "box_0009.png",
+    "weight": 4,
+    "type": "no_stack",
+    "sticker": "Oreo cookie bulk pack, stacked cookie trays inside thin blue branded box",
+    "visual": "stacked cookie trays with thin plastic dividers inside compress and crack brittle sandwich cookies, slim blue branded box walls flex inward and cannot support any vertical stacking load"
+  },
+  {
+    "sticker_name": "Moncher soft cake",
+    "image": "box_0010.png",
+    "weight": 3.1,
+    "type": "no_stack",
+    "sticker": "Moncher soft cake 12-pack, cream-filled cakes shown on pastel packaging",
+    "visual": "soft cream-filled sponge cakes inside deform and flatten under even light pressure, thin pastel-colored box with no internal partitions offers zero compression resistance for stacking"
+  },
+  {
+    "sticker_name": "Pretzel Mix Assortment",
+    "image": "box_0011.png",
+    "weight": 3.5,
+    "type": "no_stack",
+    "sticker": "pretzel mix assortment box, twisted baked snacks visible through cellophane window",
+    "visual": "brittle twisted pretzel pieces packed inside shatter into fragments under compression, thin cardboard box with cellophane window panel buckles and offers no crush resistance for stacking"
+  },
+  {
+    "sticker_name": "Ace cracker box",
+    "image": "box_0012.png",
+    "weight": 2.9,
+    "type": "no_stack",
+    "sticker": "Ace cracker box with golden cracker image, light rattling sound indicator on label",
+    "visual": "brittle layered crackers stacked inside crumble into powder under minimal compression, thin printed cardboard box deforms easily and provides no crush resistance for stacking"
+  },
+  {
+    "sticker_name": "Egg Tray Triple",
+    "image": "box_0013.png",
+    "weight": 6,
+    "type": "no_stack",
+    "sticker": "egg tray triple pack, 30-count molded pulp trays stacked with rubber band securing",
+    "visual": "fragile eggshells crack and leak under minimal weight while thin molded pulp trays deform and nest into each other, concave tray surface prevents flat contact making any upper layer placement unstable"
+  },
+  {
+    "sticker_name": "Strawberry Packs",
+    "image": "box_0014.png",
+    "weight": 7.2,
+    "type": "no_stack",
+    "sticker": "strawberry 500g packs in ventilated cardboard flat, red fruit visible through clear lids",
+    "visual": "soft ripe strawberries bruise and release juice under even light stacking pressure, shallow ventilated cardboard tray with open side slots provides no vertical compression resistance"
+  },
+  {
+    "sticker_name": "Bakery Cake Boxes",
+    "image": "box_0015.png",
+    "weight": 4.8,
+    "type": "no_stack",
+    "sticker": "bakery cake boxes stacked, ribbon-tied white boxes with 'Keep Upright' arrow printed",
+    "visual": "soft frosted cakes with layered cream filling inside deform and smear under pressure, ribbon-tied white boxes with upright-only orientation cannot maintain shape under any stacking weight"
+  },
+  {
+    "sticker_name": "Coca-Cola",
+    "image": "box_0016.png",
+    "weight": 9.5,
+    "type": "normal",
+    "sticker": "Coca-Cola 355ml can 24-pack, red branded shrink wrap over aluminum cans in cardboard tray",
+    "visual": "24 rigid aluminum cans filled with carbonated cola form a tightly packed grid inside sturdy cardboard case, uniform flat top surface and internal pressure of sealed cans provide stable multi-layer stacking support"
+  },
+  {
+    "sticker_name": "Pepsi",
+    "image": "box_0017.png",
+    "weight": 9.5,
+    "type": "normal",
+    "sticker": "Pepsi 355ml can 24-pack, blue branded cardboard case with perforated handle",
+    "visual": "24 sealed aluminum cans arranged in rows inside reinforced branded case distribute vertical load evenly, perforated handle does not compromise case rigidity and flat top allows reliable stacking"
+  },
+  {
+    "sticker_name": "Chilsung Cider",
+    "image": "box_0018.png",
+    "weight": 9.3,
+    "type": "normal",
+    "sticker": "Chilsung Cider 355ml can 24-pack, green labeled shrink wrap bundle",
+    "visual": "24 pressurized aluminum cans bundled tightly in shrink wrap create a solid rectangular block, uniform can height and flat top surface provide consistent contact area for stable stacking"
+  },
+  {
+    "sticker_name": "Monster Energy",
+    "image": "box_0019.png",
+    "weight": 9.6,
+    "type": "normal",
+    "sticker": "Monster Energy 355ml can 24-pack, black and green claw-mark branded case",
+    "visual": "24 tall aluminum cans with internal carbonation pressure form a rigid grid inside branded case, reinforced cardboard walls and flush top surface support reliable multi-layer stacking"
+  },
+  {
+    "sticker_name": "Red Bull",
+    "image": "box_0020.png",
+    "weight": 7.2,
+    "type": "normal",
+    "sticker": "Red Bull 250ml can 24-pack, compact blue-silver case with charging bull logo",
+    "visual": "24 compact slim aluminum cans packed tightly in small case form a dense stable block, low center of gravity and flat uniform top surface make it well suited for multi-layer stacking"
+  },
+  {
+    "sticker_name": "Hite beer",
+    "image": "box_0021.png",
+    "weight": 7.1,
+    "type": "normal",
+    "sticker": "Hite beer 500ml can 12-pack, gold and white branded cardboard carrier",
+    "visual": "12 large aluminum beer cans in partitioned cardboard carrier distribute weight evenly across the base, flat sealed can tops create a level surface for secure multi-layer stacking"
+  },
+  {
+    "sticker_name": "Cass Fresh",
+    "image": "box_0022.png",
+    "weight": 9.8,
+    "type": "normal",
+    "sticker": "Cass Fresh 355ml can 24-pack, blue wave-pattern branded case",
+    "visual": "24 aluminum cans in wave-pattern branded case form a solid interlocked grid, sealed cans resist deformation under load and uniform top surface enables reliable multi-layer stacking"
+  },
+  {
+    "sticker_name": "Del Monte juice",
+    "image": "box_0023.png",
+    "weight": 8.5,
+    "type": "normal",
+    "sticker": "Del Monte juice 240ml can 30-pack, fruit images on yellow shrink wrap",
+    "visual": "30 small juice cans tightly arranged in shrink-wrapped rows create a dense rectangular mass, low profile cans and flat top surface distribute stacking load evenly across the tray"
+  },
+  {
+    "sticker_name": "Let's Be coffee",
+    "image": "box_0024.png",
+    "weight": 6.9,
+    "type": "normal",
+    "sticker": "Let's Be coffee 175ml can 30-pack, brown labeled small cans tightly packed",
+    "visual": "30 small steel coffee cans tightly packed in uniform rows create a compact dense block, rigid can walls and flush top surface provide stable support for multi-layer stacking"
+  },
+  {
+    "sticker_name": "Vita",
+    "image": "box_0025.png",
+    "weight": 17,
+    "type": "heavy",
+    "sticker": "Vita 500 vitamin drink 100ml can 150-pack, small yellow cans tightly packed in reinforced double-wall carton",
+    "visual": "150 small metal cans filled with vitamin drink create dense concentrated mass inside reinforced carton, heavy uniform weight distribution and flat top surface form a stable load-bearing base for multi-layer stacking"
+  },
+  {
+    "sticker_name": "Dongwon tuna",
+    "image": "box_0026.png",
+    "weight": 4.8,
+    "type": "normal",
+    "sticker": "Dongwon tuna 150g can 24-pack, stacked round cans with ocean-blue labels",
+    "visual": "24 short round tuna cans stacked in tight rows inside sturdy case create a low-profile dense mass, rigid steel can bodies and flat top surface distribute load evenly for stable stacking"
+  },
+  {
+    "sticker_name": "SPAM",
+    "image": "box_0027.png",
+    "weight": 5.2,
+    "type": "normal",
+    "sticker": "SPAM 340g can 10-pack, blue tin cans with gold lettering in branded box",
+    "visual": "10 solid rectangular steel tins packed snugly inside branded box form a compact heavy block, rigid tin walls and flat uniform tops create a level surface suitable for stacking"
+  },
+  {
+    "sticker_name": "Pocari Sweat",
+    "image": "box_0028.png",
+    "weight": 9.2,
+    "type": "normal",
+    "sticker": "Pocari Sweat 340ml can 24-pack, blue and white ionic drink branded case",
+    "visual": "24 aluminum ionic drink cans in branded case form a uniform grid with internal pressure reinforcement, flat top surface and rigid can structure support consistent multi-layer stacking"
+  },
+  {
+    "sticker_name": "Korean grain label",
+    "image": "box_0029.png",
+    "weight": 20,
+    "type": "heavy",
+    "sticker": "rice 10kg double bag pack, white woven polypropylene sacks with Korean grain label",
+    "visual": "two 10kg sacks of densely packed rice grains fill the reinforced polypropylene bags with minimal air gaps, heavy granular mass conforms to flat rectangular shape creating a stable load-bearing base for stacking"
+  },
+  {
+    "sticker_name": "All-purpose Flour Bags",
+    "image": "box_0030.png",
+    "weight": 21.5,
+    "type": "heavy",
+    "sticker": "all-purpose flour 5kg bags x4, white paper sacks stacked in reinforced cardboard box",
+    "visual": "four 5kg paper sacks of fine-milled flour packed tightly inside reinforced cardboard box create a dense uniform block, heavy powdered mass settles firmly and flat box profile provides a stable stacking base"
+  },
+  {
+    "sticker_name": "Canned Tuna Bulk",
+    "image": "box_0031.png",
+    "weight": 8.5,
+    "type": "normal",
+    "sticker": "canned tuna 150g 48-pack bulk, double-layer stacked round cans in reinforced box",
+    "visual": "48 round tuna cans arranged in double-layer rows inside reinforced box create a high-density compact mass, rigid steel can structure and flat uniform top enable stable multi-layer stacking"
+  },
+  {
+    "sticker_name": "Canned Whole Tomatoes",
+    "image": "box_0032.png",
+    "weight": 11.8,
+    "type": "no_stack",
+    "sticker": "canned whole tomatoes 400g 24-pack, red-labeled tin cans in printed cardboard case",
+    "visual": "heavy liquid-filled tomato cans packed inside shift and concentrate weight unevenly, combined mass exceeds the thin printed cardboard case load capacity and box walls buckle under additional stacking weight"
+  },
+  {
+    "sticker_name": "Soju Glass Bottles",
+    "image": "box_0033.png",
+    "weight": 12,
+    "type": "fragile",
+    "sticker": "soju 360ml glass bottles 20-pack, green tinted bottles in molded cardboard dividers",
+    "visual": "thin-walled green glass soju bottles packed in molded cardboard dividers crack and shatter on impact, liquid contents spill and sharp fragments scatter requiring slow controlled gripper approach and vibration-free placement"
+  },
+  {
+    "sticker_name": "Craft Beer Glass",
+    "image": "box_0034.png",
+    "weight": 8.5,
+    "type": "fragile",
+    "sticker": "craft beer 500ml glass bottles 12-pack, brown bottles with printed labels in partitioned case",
+    "visual": "brown glass beer bottles with printed labels inside partitioned case fracture under uneven pressure or side impact, carbonated liquid contents amplify breakage risk requiring gentle handling and level placement"
+  },
+  {
+    "sticker_name": "Wine Bottles Dark",
+    "image": "box_0035.png",
+    "weight": 7.8,
+    "type": "fragile",
+    "sticker": "wine 750ml bottles 6-pack, dark glass bottles in styrofoam-lined wooden crate",
+    "visual": "tall dark glass wine bottles in styrofoam-lined wooden crate crack along thin neck sections under shock or tilt, liquid contents and staining risk require upright stable placement with no lateral movement"
+  },
+  {
+    "sticker_name": "Extra Virgin Olive",
+    "image": "box_0036.png",
+    "weight": 7.5,
+    "type": "fragile",
+    "sticker": "extra virgin olive oil 1L glass bottles 6-pack, dark green glass in cardboard dividers",
+    "visual": "dark green glass bottles filled with dense olive oil fracture under impact releasing slippery liquid, narrow bottle necks are structural weak points requiring vibration-free vertical placement in cardboard dividers"
+  },
+  {
+    "sticker_name": "Korean traditional labels",
+    "image": "box_0037.png",
+    "weight": 9.8,
+    "type": "fragile",
+    "sticker": "soy sauce 900ml glass bottles 8-pack, dark brown bottles with Korean traditional labels",
+    "visual": "dark brown glass bottles of fermented soy sauce crack under uneven load or sharp impact, leaking liquid stains and corrodes surrounding packaging requiring careful upright handling with no sudden stops"
+  },
+  {
+    "sticker_name": "Beer Glass Bottles",
+    "image": "box_0038.png",
+    "weight": 11.5,
+    "type": "fragile",
+    "sticker": "beer 330ml glass bottles 24-pack, amber bottles packed tightly in branded cardboard case",
+    "visual": "24 amber glass beer bottles packed tightly in branded case chip and crack under impact or vibration, carbonation pressure inside bottles amplifies shattering risk requiring smooth deceleration during placement"
+  },
+  {
+    "sticker_name": "Pickle Jars Glass",
+    "image": "box_0039.png",
+    "weight": 8.8,
+    "type": "fragile",
+    "sticker": "pickle jars 1L glass 6-pack, clear jars with metal lids showing green contents",
+    "visual": "thick glass jars filled with brine and preserved vegetables crack under impact or uneven pressure, liquid contents leak and metal lids pop open if tilted requiring strict upright placement with no stacking"
+  },
+  {
+    "sticker_name": "Sesame Oil Glass",
+    "image": "box_0040.png",
+    "weight": 6.5,
+    "type": "fragile",
+    "sticker": "sesame oil 320ml glass bottles 12-pack, small amber bottles in foam-padded box",
+    "visual": "small amber glass bottles of aromatic sesame oil nested in foam padding fracture if padding shifts during handling, concentrated oil leaks and spreads rapidly requiring gentle placement with minimal acceleration"
+  },
+  {
+    "sticker_name": "Whiskey Glass Bottles",
+    "image": "box_0041.png",
+    "weight": 7,
+    "type": "fragile",
+    "sticker": "whiskey 700ml glass bottles 6-pack, premium dark glass in velvet-lined gift case",
+    "visual": "premium dark glass whiskey bottles in velvet-lined case crack at the neck or base under sharp impact, high-value liquid contents and presentation packaging demand slow deliberate gripper movement and cushioned placement"
+  },
+  {
+    "sticker_name": "Jam Glass Jars",
+    "image": "box_0042.png",
+    "weight": 6.8,
+    "type": "fragile",
+    "sticker": "jam 350g glass jars 12-pack, round jars with checkered lids in cardboard grid",
+    "visual": "round glass jam jars with metal checkered lids packed in cardboard grid chip and crack if jars knock against each other, thick sticky contents seep through cracks requiring careful vibration-free transport"
+  },
+  {
+    "sticker_name": "Galaxy smartphone retail boxes",
+    "image": "box_0043.png",
+    "weight": 4.5,
+    "type": "fragile",
+    "sticker": "Galaxy smartphone retail boxes 10-unit case, slim black boxes with holographic seals",
+    "visual": "slim smartphones with glass screens and precision circuit boards inside retail boxes suffer permanent display cracking and component damage from drops or compression, rigid foam inserts protect only with shock-free handling"
+  },
+  {
+    "sticker_name": "Apple-branded boxes with device",
+    "image": "box_0044.png",
+    "weight": 3.8,
+    "type": "fragile",
+    "sticker": "iPad 5-unit shipping case, white Apple-branded boxes with device silhouette",
+    "visual": "large glass touchscreens and thin aluminum chassis inside white retail boxes crack and bend under point pressure or drops, foam-cushioned packaging requires level placement with no stacking or tilting"
+  },
+  {
+    "sticker_name": "Laptop Case Foam-cushioned",
+    "image": "box_0045.png",
+    "weight": 7.2,
+    "type": "fragile",
+    "sticker": "laptop 3-unit case, foam-cushioned inner boxes with brand logo and spec stickers",
+    "visual": "laptop screens with thin LCD panels and mechanical hard drives inside foam-cushioned boxes suffer display fracture and data loss from impact, hinged chassis bends under compression requiring flat vibration-free placement"
+  },
+  {
+    "sticker_name": "Wireless Earbuds Case",
+    "image": "box_0046.png",
+    "weight": 2.1,
+    "type": "fragile",
+    "sticker": "wireless earbuds 20-unit case, small retail boxes stacked in master carton",
+    "visual": "miniature speakers and lithium batteries inside compact earbuds cases malfunction from vibration or compression, stacked small retail boxes shift easily requiring stable grouped placement without lateral shaking"
+  },
+  {
+    "sticker_name": "Bluetooth speakers",
+    "image": "box_0047.png",
+    "weight": 5.6,
+    "type": "fragile",
+    "sticker": "Bluetooth speakers 8-unit case, padded retail boxes with product photos",
+    "visual": "internal driver cones and passive radiator membranes inside speaker units tear or misalign from sharp impact, padded retail boxes require upright orientation and shock-free placement to preserve acoustic calibration"
+  },
+  {
+    "sticker_name": "Monitor Pack Large",
+    "image": "box_0048.png",
+    "weight": 12.5,
+    "type": "fragile",
+    "sticker": "24-inch monitor 2-unit pack, large flat box with screen diagram and orientation arrows",
+    "visual": "large thin LCD panels with edge-to-edge glass inside flat boxes crack from flex or point impact, orientation arrows indicate required upright handling with no bending pressure or face-down placement"
+  },
+  {
+    "sticker_name": "Power Banks Box",
+    "image": "box_0049.png",
+    "weight": 4.8,
+    "type": "fragile",
+    "sticker": "power banks 15-unit box, lithium battery warning labels on outer carton",
+    "visual": "high-density lithium polymer cells inside power bank units risk swelling or thermal event from puncture or crush, hazmat warning labels require gentle stacking with no sharp impacts or compression"
+  },
+  {
+    "sticker_name": "Camera Lenses Case",
+    "image": "box_0050.png",
+    "weight": 4.5,
+    "type": "fragile",
+    "sticker": "camera lenses 6-unit case, padded foam compartments with lens cap outlines",
+    "visual": "precision-ground optical glass elements and autofocus motors inside padded foam compartments misalign from shock or vibration, coated lens surfaces scratch if foam shifts requiring zero-impact careful placement"
+  },
+  {
+    "sticker_name": "Heavy Info Labelled Box",
+    "image": "sticker_9_heavy_155.png",
+    "weight": 15.5,
+    "type": "heavy",
+    "sticker": "heavy info labelled box, reinforced corners and warning labels",
+    "visual": "heavy items inside reinforced boxes with clear handling instructions require careful lifting and placement to avoid damage or injury"
+  },
+  {
+    "sticker_name": "Heavy Info Labelled Box",
+    "image": "sticker_12_heavy_278.png",
+    "weight": 15.5,
+    "type": "heavy",
+    "sticker": "heavy label box with reinforced corners and warning labels",
+    "visual": "heavy-duty shipping containers with reinforced structural integrity and explicit warning indicators for secure manual or mechanical handling"
+  },
+  {
+    "sticker_name": "Heavy Info Labelled Box",
+    "image": "sticker_14_184.png",
+    "weight": 15.5,
+    "type": "heavy",
+    "sticker": "heavy label box with reinforced corners and warning labels",
+    "visual": "heavy reinforced boxes with prominent labels; must not be placed on top of lighter items to prevent crushing or structural collapse"
+  },
+  {
+    "sticker_name": "Fragile Handle With Care",
+    "image": "1_fragile_handle with care.png",
+    "weight": 5.0,
+    "type": "fragile",
+    "sticker": "red FRAGILE / Handle With Care warning label with fragile glass icon",
+    "visual": "bright red fragile warning sticker with broken glass symbol and bold text indicating contents are delicate and must be handled gently without dropping or stacking"
+  },
+  {
+    "sticker_name": "Fragile Warning",
+    "image": "3_fragile.png",
+    "weight": 5.0,
+    "type": "fragile",
+    "sticker": "red FRAGILE warning label with cracked glass icon on white background",
+    "visual": "prominent red fragile warning sticker with shattered glass graphic indicating breakable contents that require careful slow handling and shock-free placement"
+  },
+  {
+    "sticker_name": "Glass Warning",
+    "image": "4_glass.png",
+    "weight": 5.0,
+    "type": "fragile",
+    "sticker": "broken wine glass icon warning label indicating glass contents inside",
+    "visual": "standard broken wine glass hazard symbol on white background warning of glass contents that shatter on impact requiring vibration-free upright transport"
+  },
+  {
+    "sticker_name": "Handle With Care",
+    "image": "5_handle with care.png",
+    "weight": 5.0,
+    "type": "fragile",
+    "sticker": "Handle With Care warning label with open hands icon on red background",
+    "visual": "red handle with care sticker showing cupped hands symbol instructing gentle careful lifting and placement to protect delicate contents from shock or compression"
+  },
+  {
+    "sticker_name": "Do Not Stack",
+    "image": "6_do_not_stack.png",
+    "weight": 5.0,
+    "type": "no_stack",
+    "sticker": "Do Not Stack warning label with crossed-out stacking boxes icon",
+    "visual": "black and red do not stack prohibition symbol with crossed-out stacked boxes indicating contents cannot bear upper load and must be placed on top layer only"
+  }
+]

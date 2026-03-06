@@ -1,0 +1,52 @@
+spawn:
+  position: [0.59, 3.01, -0.20]
+  velocity: [0.0, -0.6, 0.0]
+  interval: 3.0
+buffer:
+  endpoint: [0.59, -0.75, -0.20]
+  length: 3
+sticker_path:
+  metadata_file: stickers/metadata.json
+types:
+  normal:
+    weight: 0.4
+    usd_paths:
+      - boxes/SM_CardBoxD_05.usd
+      - boxes/SM_CardBoxD_01.usd
+    x_choices: [0.50, 0.25]
+    y_choices: [0.50, 0.25]
+    z_choices: [0.25]
+    sticker_probability: 1.0
+
+  fragile:
+    weight: 0.2
+    usd_paths:
+      - boxes/SM_CardBoxD_05.usd
+      - boxes/SM_CardBoxD_01.usd
+    x_choices: [0.25, 0.5]
+    y_choices: [0.25, 0.5]
+    z_choices: [0.25]
+    sticker_probability: 1.0
+
+  heavy:
+    weight: 0.2
+    usd_paths:
+      - boxes/SM_CardBoxD_05.usd
+      - boxes/SM_CardBoxD_01.usd
+    x_choices: [0.50]
+    y_choices: [0.50]
+    z_choices: [0.25, 0.5]
+    sticker_probability: 1.0
+
+  damaged:
+    weight: 0.2
+    usd_paths:
+      - boxes/damaged/damaged_untaped.usd
+      - boxes/damaged/damaged_untaped2.usd
+    visuals:
+      - "tape is torn off and the box is open with flaps sticking out"
+      - "box is not taped and remains folded flat without any sealing"
+    x_choices: [0.50]
+    y_choices: [0.25]
+    z_choices: [0.25]
+    sticker_probability: 0.0

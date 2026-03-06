@@ -1,0 +1,91 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# uv
+uv.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.zed/
+
+# Testing / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Generated datasets
+*.json
+*.jsonl
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.tiff
+*.pt
+*.bin
+*.safetensors
+*.ckpt
+*.onnx
+!app/configs/*.json
+!sim/usd/assets/textures/stickers/*.png
+!sim/usd/assets/textures/stickers/*.json
+
+# Isaac Sim cache
+_isaac_sim/
+.nvidia-omniverse/
+
+# Model artifacts
+*.onnx
+
+# Media output (large files)
+media/output/*
+!media/output/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment / Secrets
+.env
+.env.*
+!.env.example
+!docker/.env.example
+
+# CUDA torch backend marker (written by make init)
+.torch-backend
+
+# Mlflow
+mlruns/
+*.db
+
+# LoRA adapters (downloaded by make adapters)
+adapters/2B/*
+adapters/8B/*
+!adapters/2B/.gitkeep
+!adapters/8B/.gitkeep
+
+# app
+app/ui/node_modules
+!app/ui/package.json
+!app/ui/tsconfig.json
+!app/ui/tsconfig.app.json
+!app/ui/tsconfig.node.json
