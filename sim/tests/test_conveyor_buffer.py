@@ -347,8 +347,8 @@ class TestKinematic:
         mock_kin.assert_any_call(box, enabled=True)
 
     @patch("drp_sim.conveyor_buffer.ConveyorBuffer._set_kinematic")
-    def test_kinematic_disabled_on_release(self, mock_kin) -> None:
-        """Kinematic is disabled via release_box(), not pop_box_at()."""
+    def test_kinematic_kept_enabled_on_release(self, mock_kin) -> None:
+        """Kinematic stays enabled after release to avoid cuRobo collision snapshot invalidation."""
         spawner = _make_mock_spawner()
         buf = ConveyorBuffer(
             spawner,
@@ -359,15 +359,11 @@ class TestKinematic:
         buf.fill()
         _fill_via_conveyor(buf)
 
-        prim, _ = buf.pop_nearest_box()
+        prim, path = buf.pop_nearest_box()
+        buf.release_box(prim, prim_path=path)
 
-        # pop_box_at no longer disables kinematic (Fabric sync safety).
-        # Only enabled=True calls from dispatch/snap should exist.
+        # Neither pop nor release should disable kinematic.
         assert not any(c == ((prim,), {"enabled": False}) for c in mock_kin.call_args_list)
-
-        # release_box disables kinematic after pick is complete
-        buf.release_box(prim)
-        mock_kin.assert_called_with(prim, enabled=False)
 
 
 class TestCompaction:
@@ -541,6 +537,83 @@ class TestConsumedDetection:
             assigned_position=(0.59, -0.75, -0.20),
         )
         assert ConveyorBuffer._is_consumed(slot) is True
+
+
+class TestSpawnOne:
+    """Tests for spawn_one() — single-box buffer entry point."""
+
+    def test_spawn_one_returns_status(self) -> None:
+        spawner = _make_mock_spawner()
+        buf = ConveyorBuffer(spawner, endpoint=_ENDPOINT, length=3, conveyor_velocity=_VELOCITY)
+        result = buf.spawn_one()
+        assert result is not None
+        assert result["status"] == "spawning"
+        assert result["target_slot"] == 0
+        assert result["capacity"] == 3
+
+    def test_spawn_one_activates_buffer(self) -> None:
+        spawner = _make_mock_spawner()
+        buf = ConveyorBuffer(spawner, endpoint=_ENDPOINT, length=3, conveyor_velocity=_VELOCITY)
+        buf.spawn_one()
+        assert buf.active is True
+        assert spawner.auto_spawn_enabled is False
+
+    def test_spawn_one_marks_single_slot_pending(self) -> None:
+        spawner = _make_mock_spawner()
+        buf = ConveyorBuffer(spawner, endpoint=_ENDPOINT, length=3, conveyor_velocity=_VELOCITY)
+        buf.spawn_one()
+        assert len(buf._pending_slots) == 1
+        assert buf._pending_slots[0] == 0
+
+    def test_spawn_one_consecutive_fills_different_slots(self) -> None:
+        spawner = _make_mock_spawner()
+        buf = ConveyorBuffer(spawner, endpoint=_ENDPOINT, length=3, conveyor_velocity=_VELOCITY)
+        r1 = buf.spawn_one()
+        _fill_via_conveyor(buf)
+        r2 = buf.spawn_one()
+        _fill_via_conveyor(buf)
+        r3 = buf.spawn_one()
+
+        assert r1["target_slot"] == 0
+        assert r2["target_slot"] == 1
+        assert r3["target_slot"] == 2
+
+    def test_spawn_one_returns_none_when_full(self) -> None:
+        spawner = _make_mock_spawner()
+        buf = ConveyorBuffer(spawner, endpoint=_ENDPOINT, length=2, conveyor_velocity=_VELOCITY)
+        buf.fill()
+        _fill_via_conveyor(buf)
+        assert buf.occupied_count == 2
+
+        result = buf.spawn_one()
+        assert result is None
+
+    def test_spawn_one_returns_none_when_all_pending(self) -> None:
+        spawner = _make_mock_spawner()
+        buf = ConveyorBuffer(spawner, endpoint=_ENDPOINT, length=2, conveyor_velocity=_VELOCITY)
+        buf.spawn_one()
+        buf.spawn_one()
+        result = buf.spawn_one()
+        assert result is None
+
+    def test_spawn_one_dispatches_on_step(self) -> None:
+        spawner = _make_mock_spawner()
+        buf = ConveyorBuffer(spawner, endpoint=_ENDPOINT, length=3, conveyor_velocity=_VELOCITY)
+        buf.spawn_one()
+        assert spawner.spawn.call_count == 0
+
+        buf.step()
+        assert spawner.spawn.call_count == 1
+        assert buf._in_transit is not None
+
+    def test_spawn_one_box_arrives_at_slot(self) -> None:
+        spawner = _make_mock_spawner()
+        buf = ConveyorBuffer(spawner, endpoint=_ENDPOINT, length=3, conveyor_velocity=_VELOCITY)
+        buf.spawn_one()
+        _fill_via_conveyor(buf)
+
+        assert buf.occupied_count == 1
+        assert buf.slot_states == [1, 0, 0]
 
 
 class TestStepMisc:

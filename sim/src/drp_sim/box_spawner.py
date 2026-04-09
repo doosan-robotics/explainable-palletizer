@@ -150,8 +150,10 @@ class BoxSpawner:
         env_path: str = "/World",
         sticker_attacher: StickerAttacher | None = None,
         box_ttl: float | None = 15.0,
+        rng: random.Random | None = None,
     ) -> None:
         self._world = world
+        self._rng = rng if rng is not None else random.Random()
         self._type_configs = type_configs if type_configs is not None else _DEFAULT_TYPE_CONFIGS
         self._type_weights = type_weights if type_weights is not None else _DEFAULT_TYPE_WEIGHTS
         self._spawn_position = np.array(spawn_position, dtype=float)
@@ -204,15 +206,17 @@ class BoxSpawner:
             next_type = None
         box_type = next_type if next_type is not None else self._sample_type()
         config = self._type_configs[box_type]
-        usd_idx = random.randrange(len(config.usd_paths))
+        usd_idx = self._rng.randrange(len(config.usd_paths))
         usd_path = config.usd_paths[usd_idx]
         box_size = (
-            random.choice(config.x_choices),
-            random.choice(config.y_choices),
-            random.choice(config.z_choices),
+            self._rng.choice(config.x_choices),
+            self._rng.choice(config.y_choices),
+            self._rng.choice(config.z_choices),
         )
 
-        scale, native_half, native_z_top = self._resolve_variant(usd_path, box_size)
+        scale, native_half, native_z_top, origin_offset_z = self._resolve_variant(
+            usd_path, box_size
+        )
 
         box_name = f"box_{self._box_count}"
         prim_path = f"{self._env_path}/{box_name}"
@@ -250,8 +254,10 @@ class BoxSpawner:
                 if result is not None:
                     weight = result.weight
                     visual = result.visual
-            elif config.sticker_probability > 0 and (random.random() < config.sticker_probability):
-                result = self._sticker_attacher.attach(stage, prim_path, scale, box_type)
+            elif config.sticker_probability > 0 and self._rng.random() < config.sticker_probability:
+                result = self._sticker_attacher.attach(
+                    stage, prim_path, scale, box_type, rng=self._rng
+                )
                 if result is not None:
                     weight = result.weight
                     visual = result.visual
@@ -261,9 +267,9 @@ class BoxSpawner:
 
         if weight is None:
             if box_type == "heavy":
-                weight = random.uniform(15.0, 30.0)
+                weight = self._rng.uniform(15.0, 30.0)
             else:
-                weight = random.uniform(5.0, 15.0)
+                weight = self._rng.uniform(5.0, 15.0)
 
         box_prim.set_masses(np.array([weight]))
 
@@ -272,12 +278,13 @@ class BoxSpawner:
             "size": list(box_size),
             "weight": round(weight, 1),
             "type": box_type,
+            "origin_offset_z": round(origin_offset_z, 6),
         }
         if visual is not None:
             meta["visual"] = visual
         self._box_metadata.append(meta)
 
-        self._randomize_box_color(stage, prim_path)
+        self._randomize_box_color(stage, prim_path, rng=self._rng)
         return prim_path
 
     def step(self) -> None:
@@ -399,7 +406,7 @@ class BoxSpawner:
         """Sample a box type according to ``_type_weights``."""
         types = list(self._type_weights.keys())
         weights = [self._type_weights[t] for t in types]
-        return random.choices(types, weights=weights, k=1)[0]
+        return self._rng.choices(types, weights=weights, k=1)[0]
 
     @staticmethod
     def _compute_native_bbox(
@@ -421,23 +428,38 @@ class BoxSpawner:
 
     def _resolve_variant(
         self, usd_path: str, box_size: tuple[float, float, float]
-    ) -> tuple[tuple[float, float, float], tuple[float, float], float]:
-        """Return ``(scale, (half_x, half_y), z_top)`` for a variant."""
+    ) -> tuple[tuple[float, float, float], tuple[float, float], float, float]:
+        """Return ``(scale, (half_x, half_y), z_top, origin_offset_z)`` for a variant.
+
+        ``origin_offset_z`` is the signed Z distance from the prim origin to
+        the geometric centre *after* scaling.  When the USD asset has its
+        origin at the bottom (lo_z ≈ 0) this equals ``box_size[2] / 2``;
+        when the origin is already centred it is 0.
+        """
         if usd_path not in self._bbox_cache:
             self._bbox_cache[usd_path] = self._compute_native_bbox(usd_path)
             lo, hi = self._bbox_cache[usd_path]
             nx, ny, nz = hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]
-            print(f"[BoxSpawner] {Path(usd_path).stem}: native {nx:.4f} x {ny:.4f} x {nz:.4f}")
+            print(
+                f"[BoxSpawner] {Path(usd_path).stem}: "
+                f"native {nx:.4f} x {ny:.4f} x {nz:.4f}, "
+                f"lo=({lo[0]:.4f}, {lo[1]:.4f}, {lo[2]:.4f}), "
+                f"hi=({hi[0]:.4f}, {hi[1]:.4f}, {hi[2]:.4f})"
+            )
         lo, hi = self._bbox_cache[usd_path]
         nx, ny, nz = hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]
         scale = (box_size[0] / nx, box_size[1] / ny, box_size[2] / nz)
-        return scale, (nx / 2, ny / 2), hi[2]
+        origin_offset_z = (lo[2] + hi[2]) / 2 * scale[2]
+        return scale, (nx / 2, ny / 2), hi[2], origin_offset_z
 
     @staticmethod
-    def _randomize_box_color(stage: object, prim_path: str) -> None:
+    def _randomize_box_color(
+        stage: object, prim_path: str, rng: random.Random | None = None
+    ) -> None:
         """Apply slight random color jitter to the box material."""
         from pxr import Gf, Usd, UsdShade
 
+        _uniform = rng.uniform if rng is not None else random.uniform
         root = stage.GetPrimAtPath(prim_path)
         if not root.IsValid():
             return
@@ -452,9 +474,9 @@ class BoxSpawner:
                 base = color_input.Get()
                 if base is None:
                     continue
-                r = float(base[0]) + random.uniform(-_COLOR_JITTER, _COLOR_JITTER)
-                g = float(base[1]) + random.uniform(-_COLOR_JITTER, _COLOR_JITTER)
-                b = float(base[2]) + random.uniform(-_COLOR_JITTER, _COLOR_JITTER)
+                r = float(base[0]) + _uniform(-_COLOR_JITTER, _COLOR_JITTER)
+                g = float(base[1]) + _uniform(-_COLOR_JITTER, _COLOR_JITTER)
+                b = float(base[2]) + _uniform(-_COLOR_JITTER, _COLOR_JITTER)
                 color_input.Set(
                     Gf.Vec3f(
                         max(0.0, min(1.0, r)),

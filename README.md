@@ -29,11 +29,21 @@ Our system leverages the **complete NVIDIA ecosystem**: **Cosmos Reason2** for v
 | nvidia-container-toolkit | installed and configured |
 | Docker | with Compose V2 |
 
-### Supported Hardware
+### Tested Hardware
 
-- NVIDIA RTX 4090 or higher
-- NVIDIA Jetson Thor
-- NVIDIA DGX Spark
+| Hardware | Architecture |
+| --- | --- |
+| NVIDIA RTX 4090 | Ada Lovelace |
+| NVIDIA H200 | Hopper |
+| NVIDIA RTX PRO 6000 / Jetson Thor | Blackwell |
+
+### Prerequisites
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) (Python package manager):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
 ### How to Run
 
@@ -48,23 +58,33 @@ Edit `docker/.env` to set your configuration. Key variables:
 | Variable | Description | Default |
 | --- | --- | --- |
 | `HF_TOKEN` | HuggingFace token (required for gated models) | — |
-| `INFERENCE_MODEL` | Model ID (`nvidia/Cosmos-Reason2-2B` or `nvidia/Cosmos-Reason2-8B`) | `nvidia/Cosmos-Reason2-2B` |
+| `INFERENCE_MODEL` | Model ID (`nvidia/Cosmos-Reason2-2B` or `nvidia/Cosmos-Reason2-8B`) | `nvidia/Cosmos-Reason2-8B` |
 | `LORA_ADAPTER_PATH` | LoRA adapter path inside container (e.g. `/adapters/cosmos-reason2-8b`) | — |
 | `LORA_MODEL` | LoRA model name for vLLM (e.g. `palletize`) | — |
-| `VLLM_MAX_MODEL_LEN` | Max model context length | `4096` |
+| `VLLM_MAX_MODEL_LEN` | Max model context length | `5120` |
 | `VLLM_GPU_MEMORY_UTILIZATION` | Fraction of GPU memory for vLLM | `0.5` |
-| `SIM_GPU_DEVICE` / `INFERENCE_GPU_DEVICE` | GPU device IDs (for multi-GPU setups) | `0` |
+| `SIM_GPU_DEVICE` / `INFERENCE_GPU_DEVICE` / `CUROBO_GPU_DEVICE` | GPU device IDs (for multi-GPU setups) | `0` |
 | `HF_CACHE_DIR` | Host directory for HuggingFace model cache | Docker volume |
 
 The first Docker build can take **30+ minutes** due to compiling CUDA extensions and downloading model weights. It is recommended to download the Cosmos Reason2 models beforehand and mount your host HuggingFace cache into Docker by setting `HF_CACHE_DIR` (e.g. `~/.cache/huggingface`) to avoid re-downloading models on every container rebuild.
 
 ```bash
 # Pre-download the model (pick one)
-huggingface-cli download nvidia/Cosmos-Reason2-2B
-huggingface-cli download nvidia/Cosmos-Reason2-8B
+hf download nvidia/Cosmos-Reason2-2B
+hf download nvidia/Cosmos-Reason2-8B
 ```
 
-**2. Launch the system**
+**2. Download LoRA adapters**
+
+> **Note:** The VLM prompt was recently redesigned with a new reasoning structure and output format. LoRA weights trained on the previous prompt are not compatible and will produce degraded results. We are currently retraining the adapters and will publish updated weights as soon as they are ready. In the meantime, the system runs correctly without a LoRA adapter using the base model.
+
+```bash
+make adapters
+```
+
+This downloads the fine-tuned LoRA adapters into `adapters/2B` and `adapters/8B`. Requires [uv](https://docs.astral.sh/uv/getting-started/installation/) — see Prerequisites above. Skips automatically if adapters are already present.
+
+**3. Launch the system**
 
 ```bash
 make docker-up      # build and start all 4 services
@@ -72,7 +92,7 @@ make docker-logs    # follow logs
 make docker-down    # stop and remove containers
 ```
 
-**3. Access the UI**
+**4. Access the UI**
 
 Open `http://localhost:3000` in your browser.
 
@@ -88,6 +108,20 @@ Open `http://localhost:3000` in your browser.
 ```bash
 make docker-test
 ```
+
+## For Developers
+
+To set up the project locally for development:
+
+```bash
+make init
+```
+
+This creates the virtual environment, installs all dependencies, and downloads the LoRA adapters.
+
+## Team
+
+Kyungchan Son, Minsoo Song, Yujeong Jeong, Yuri Rocha — Doosan Robotics
 
 ## Disclaimer
 

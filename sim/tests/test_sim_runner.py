@@ -112,12 +112,33 @@ class TestDispatch:
 
     def test_spawn_box_with_mock_env(self, runner: SimRunner) -> None:
         mock_env = MagicMock()
-        mock_env.spawn_box.return_value = "/World/box_0"
-        mock_env.boxes = [MagicMock()]
+        mock_env.spawn_box.return_value = {
+            "status": "spawning",
+            "target_slot": 0,
+            "occupied": 0,
+            "capacity": 3,
+        }
+        # After stepping, the buffer slot should contain the spawned box.
+        mock_slot = MagicMock()
+        mock_slot.prim_path = "/World/box_0"
+        mock_buffer = MagicMock()
+        mock_buffer._slots = [mock_slot, None, None]
+        mock_buffer._in_transit = None
+        mock_buffer.occupied_count = 1
+        mock_env._buffer = mock_buffer
         runner._env = mock_env
         result = runner._dispatch(SimCommand.SPAWN_BOX, {})
         assert result["prim_path"] == "/World/box_0"
         assert result["box_count"] == 1
+        mock_env.spawn_box.assert_called_once()
+
+    def test_spawn_box_buffer_full(self, runner: SimRunner) -> None:
+        mock_env = MagicMock()
+        mock_env.spawn_box.side_effect = RuntimeError("Buffer is full")
+        runner._env = mock_env
+        result = runner._dispatch(SimCommand.SPAWN_BOX, {})
+        assert "error" in result
+        assert "full" in result["error"].lower()
 
     def test_fill_buffer_without_env(self, runner: SimRunner) -> None:
         result = runner._dispatch(SimCommand.FILL_BUFFER, {})

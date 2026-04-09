@@ -268,20 +268,27 @@ do_up() {
     fi
     export VLLM_IMAGE
 
-    # Resolve sim CUDA base images and torch backend
+    # Resolve sim CUDA base image
     if [[ -z "${SIM_CUDA_DEVEL:-}" ]]; then
         SIM_CUDA_DEVEL=$(detect_sim_cuda_devel)
         info "Auto-detected sim CUDA devel: ${SIM_CUDA_DEVEL}"
     else
         info "Using sim CUDA devel from .env: ${SIM_CUDA_DEVEL}"
     fi
-    if [[ -z "${SIM_TORCH_BACKEND:-}" ]]; then
-        SIM_TORCH_BACKEND=$(detect_sim_torch_backend)
-        info "Auto-detected sim torch backend: ${SIM_TORCH_BACKEND}"
+    export SIM_CUDA_DEVEL
+
+    # Multi-GPU: if CUROBO_GPU_DEVICE is set, map both GPUs into the sim
+    # container so cuRobo runs on a separate device (avoids CUDA context
+    # conflicts on datacenter GPUs that lack RT cores).
+    if [[ -n "${CUROBO_GPU_DEVICE:-}" ]]; then
+        SIM_GPU_DEVICES="${SIM_GPU_DEVICE:-0},${CUROBO_GPU_DEVICE}"
+        CUROBO_DEVICE="cuda:1"
+        info "cuRobo isolation: sim=GPU ${SIM_GPU_DEVICE:-0}, cuRobo=GPU ${CUROBO_GPU_DEVICE} (cuda:1 inside container)"
     else
-        info "Using sim torch backend from .env: ${SIM_TORCH_BACKEND}"
+        SIM_GPU_DEVICES="${SIM_GPU_DEVICE:-0}"
+        CUROBO_DEVICE="cuda:0"
     fi
-    export SIM_CUDA_DEVEL SIM_TORCH_BACKEND
+    export SIM_GPU_DEVICES CUROBO_DEVICE
 
     local build_flag=""
     if [[ "$FORCE_BUILD" == true ]]; then

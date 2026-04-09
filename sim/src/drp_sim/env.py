@@ -233,8 +233,8 @@ class PalletizerEnv:
         import omni.usd
         from isaacsim.core.api import World
 
+        self._rng = random.Random(self._seed) if self._seed is not None else random.Random()
         if self._seed is not None:
-            random.seed(self._seed)
             np.random.seed(self._seed)
 
         # Open the pre-built palletizing scene
@@ -270,6 +270,7 @@ class PalletizerEnv:
                 spawn_interval=self._spawn_interval,
                 sticker_attacher=sticker_attacher,
                 box_ttl=self._spawn_interval,
+                rng=self._rng,
             )
             # Pre-compute native bboxes so Usd.Stage.Open() is never
             # called during active simulation — opening a secondary USD
@@ -330,18 +331,29 @@ class PalletizerEnv:
             raise RuntimeError("spawn_boxes=True required and reset() must be called first")
         return self._buffer.fill()
 
-    def spawn_box(self) -> str:
-        """Manually spawn a box on the conveyor and return its prim path.
+    def spawn_box(self) -> dict:
+        """Spawn a box into the next available buffer slot.
+
+        Routes through ``ConveyorBuffer.spawn_one()`` so the box is
+        tracked by the buffer (assigned to a slot, rides the conveyor,
+        snaps into position).
+
+        Returns
+        -------
+        dict
+            Status dict with ``target_slot``, ``occupied``, ``capacity``.
 
         Raises
         ------
         RuntimeError
-            If the environment was not created with spawn_boxes=True or reset()
-            has not been called yet.
+            If buffer is not initialised or all slots are occupied/pending.
         """
-        if self._spawner is None:
+        if self._buffer is None:
             raise RuntimeError("spawn_boxes=True required and reset() must be called first")
-        return self._spawner.spawn()
+        result = self._buffer.spawn_one()
+        if result is None:
+            raise RuntimeError("Buffer is full — no available slots")
+        return result
 
     def reset_boxes(self) -> int:
         """Lightweight reset: hide all boxes, reset spawner+buffer state.
@@ -540,8 +552,8 @@ class PalletizerEnv:
         xf = UsdGeom.Xformable(prim)
         for op in xf.GetOrderedXformOps():
             if op.GetOpType() == UsdGeom.XformOp.TypeRotateXYZ:
-                rx = random.uniform(-15.0, 15.0)
-                ry = random.uniform(-15.0, 15.0)
+                rx = self._rng.uniform(-15.0, 15.0)
+                ry = self._rng.uniform(-15.0, 15.0)
                 op.Set(Gf.Vec3f(rx, ry, 0.0))
                 break
 

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     max_thinking_tokens: int = 512
     max_completion_tokens: int = 2048
     lora_adapter_path: str = ""
+    step_log_dir: str = ""
 
     @field_validator("lora_adapter_path", mode="before")
     @classmethod

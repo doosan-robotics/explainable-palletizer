@@ -377,8 +377,11 @@ def _run_pick_mode(args) -> None:
                         result = env.fill_buffer()
                         _say("FILL", json.dumps(result))
                     elif cmd == "spawn":
-                        path = env.spawn_box()
-                        _say("SPAWN", path)
+                        try:
+                            result = env.spawn_box()
+                            _say("SPAWN", json.dumps(result))
+                        except RuntimeError as exc:
+                            _say("SPAWN", f"error: {exc}")
                     elif cmd == "step":
                         n = int(parts[1]) if len(parts) > 1 else 1
                         for _ in range(n):

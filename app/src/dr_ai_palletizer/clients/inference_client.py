@@ -70,7 +70,11 @@ class InferenceClient:
         if not response.choices:
             return ""
         choice = response.choices[0]
-        return choice.message.content or ""
+        content = choice.message.content or ""
+        reasoning = (choice.message.model_extra or {}).get("reasoning", "") or ""
+        if reasoning:
+            return f"<think>{reasoning}</think>\n{content}"
+        return content
 
     async def get_action(
         self,
@@ -116,7 +120,12 @@ class InferenceClient:
         )
         if not response.choices:
             return ""
-        return response.choices[0].message.content or ""
+        choice = response.choices[0]
+        content = choice.message.content or ""
+        reasoning = (choice.message.model_extra or {}).get("reasoning", "") or ""
+        if reasoning:
+            return f"<think>{reasoning}</think>\n{content}"
+        return content
 
     async def continue_response(
         self,
@@ -150,4 +159,9 @@ class InferenceClient:
         )
         if not response.choices:
             return ""
-        return response.choices[0].message.content or ""
+        choice = response.choices[0]
+        content = choice.message.content or ""
+        reasoning = (choice.message.model_extra or {}).get("reasoning", "") or ""
+        if reasoning:
+            return f"<think>{reasoning}</think>\n{content}"
+        return content

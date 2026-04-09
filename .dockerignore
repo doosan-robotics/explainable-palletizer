@@ -1,0 +1,28 @@
+# Virtual environments and caches
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Git
+.git/
+.gitignore
+
+# Documentation and media
+docs/
+media/
+*.md
+
+# Development tooling
+.mlflow.log
+.pre-commit-config.yaml
+
+# Editor and OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store

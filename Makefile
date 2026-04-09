@@ -14,22 +14,22 @@ ADAPTER_8B_DIR  := adapters/8B
 # ── Primary targets ───────────────────────────────────────────────────────────
 
 .PHONY: init
-init: adapters ## First-time setup: sync all packages + install CUDA torch
+init: ## First-time setup: sync all packages + install CUDA torch + download adapters
 	uv sync --all-packages --all-extras $(KEEP_TORCH)
 	@bash scripts/install_cuda_torch.sh
+	$(MAKE) adapters
 
 .PHONY: adapters
 adapters: ## Download LoRA adapters from Hugging Face (skips if present)
-	@uv pip install "huggingface-hub[cli]" --quiet
-	@if [ ! -d "$(ADAPTER_2B_DIR)/." ] || [ -z "$$(ls -A $(ADAPTER_2B_DIR) 2>/dev/null)" ]; then \
+	@if [ ! -f "$(ADAPTER_2B_DIR)/adapter_model.safetensors" ]; then \
 		echo "Downloading 2B adapter from $(ADAPTER_2B_REPO)..."; \
-		uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('$(ADAPTER_2B_REPO)', local_dir='$(ADAPTER_2B_DIR)')"; \
+		uv run --with "huggingface-hub[cli]" hf download $(ADAPTER_2B_REPO) --local-dir $(ADAPTER_2B_DIR); \
 	else \
 		echo "2B adapter already present, skipping."; \
 	fi
-	@if [ ! -d "$(ADAPTER_8B_DIR)/." ] || [ -z "$$(ls -A $(ADAPTER_8B_DIR) 2>/dev/null)" ]; then \
+	@if [ ! -f "$(ADAPTER_8B_DIR)/adapter_model.safetensors" ]; then \
 		echo "Downloading 8B adapter from $(ADAPTER_8B_REPO)..."; \
-		uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('$(ADAPTER_8B_REPO)', local_dir='$(ADAPTER_8B_DIR)')"; \
+		uv run --with "huggingface-hub[cli]" hf download $(ADAPTER_8B_REPO) --local-dir $(ADAPTER_8B_DIR); \
 	else \
 		echo "8B adapter already present, skipping."; \
 	fi

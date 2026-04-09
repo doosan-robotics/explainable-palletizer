@@ -66,6 +66,7 @@ class BoxImageCapture:
         self._setup_done = False
         self._pending_metadata: dict[str, object] | None = None
         self._buffer: list[dict] = []
+        self._image_store: dict[str, dict] = {}  # box_id -> full image dict, never cleared
 
     def setup(self) -> None:
         """Create camera, render product, and RGB annotator.
@@ -153,6 +154,10 @@ class BoxImageCapture:
         self._buffer.clear()
         return result
 
+    def get_images_for_ids(self, box_ids: list[str]) -> list[dict]:
+        """Return stored image dicts for the given box IDs (preserving order)."""
+        return [self._image_store[bid] for bid in box_ids if bid in self._image_store]
+
     @staticmethod
     def _next_index(directory: Path) -> int:
         """Return the next available index by scanning existing ``box_*.png`` files."""
@@ -197,6 +202,7 @@ class BoxImageCapture:
             for key in ("size", "weight", "type", "visual"):
                 if key in self._pending_metadata:
                     entry[key] = self._pending_metadata[key]
+        self._image_store[entry["box_id"]] = entry
         self._buffer.append(entry)
 
         # Write to disk only when an output directory is configured

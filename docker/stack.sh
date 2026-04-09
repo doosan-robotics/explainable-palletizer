@@ -128,10 +128,7 @@ do_sim() {
     if [[ -z "${SIM_CUDA_DEVEL:-}" ]]; then
         SIM_CUDA_DEVEL=$(detect_sim_cuda_devel)
     fi
-    if [[ -z "${SIM_TORCH_BACKEND:-}" ]]; then
-        SIM_TORCH_BACKEND=$(detect_sim_torch_backend)
-    fi
-    export SIM_CUDA_DEVEL SIM_TORCH_BACKEND
+    export SIM_CUDA_DEVEL
 
     info "Rebuilding sim-server only..."
     docker compose -f docker-compose.yml build sim-server
@@ -175,11 +172,7 @@ do_up() {
         SIM_CUDA_DEVEL=$(detect_sim_cuda_devel)
         info "Auto-detected sim CUDA devel: ${SIM_CUDA_DEVEL}"
     fi
-    if [[ -z "${SIM_TORCH_BACKEND:-}" ]]; then
-        SIM_TORCH_BACKEND=$(detect_sim_torch_backend)
-        info "Auto-detected sim torch backend: ${SIM_TORCH_BACKEND}"
-    fi
-    export SIM_CUDA_DEVEL SIM_TORCH_BACKEND
+    export SIM_CUDA_DEVEL
 
     # VLLM_IMAGE must be exported even though inference-server won't run,
     # because docker-compose.yml references it and compose validates all envs.

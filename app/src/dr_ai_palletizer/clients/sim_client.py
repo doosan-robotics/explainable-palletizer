@@ -135,6 +135,13 @@ class SimClient:
         data = resp.json()
         return data.get("images", [])
 
+    async def get_box_images_for_ids(self, box_ids: list[str]) -> list[dict]:
+        """Fetch stored images for the given box IDs without draining the buffer."""
+        resp = await self._client.post("/sim/boxes/images_for_ids", json={"box_ids": box_ids})
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("images", [])
+
     async def get_pick_positions(self) -> list[dict]:
         """Fetch conveyor pickup positions from the sim-server geometry."""
         resp = await self._client.get("/sim/geometry/pick_positions")
@@ -153,9 +160,26 @@ class SimClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def remove_box(self, box_id: str) -> dict:
-        """Remove a single box from the sim by its logical ID."""
-        resp = await self._client.post("/sim/boxes/remove", json={"box_id": box_id})
+    async def remove_box(
+        self, box_id: str, *, slot: int | None = None, respawn: bool = True
+    ) -> dict:
+        """Remove a single box from the sim by its logical ID.
+
+        Parameters
+        ----------
+        slot:
+            Buffer slot index to pop.  When provided the sim pops exactly
+            that slot; otherwise it falls back to the first occupied slot.
+        respawn:
+            When False, skip queuing a replacement spawn.  The caller must
+            call ``fill_buffer()`` after all removals are complete.
+        """
+        body: dict[str, str | int | bool] = {"box_id": box_id}
+        if slot is not None:
+            body["slot"] = slot
+        if not respawn:
+            body["respawn"] = False
+        resp = await self._client.post("/sim/boxes/remove", json=body)
         resp.raise_for_status()
         return resp.json()
 
@@ -167,6 +191,7 @@ class SimClient:
         drop_pose: list[float],
         drop_quaternion: list[float] | None = None,
         box_prim: str | None = None,
+        pick_slot: int | None = None,
     ) -> dict:
         """Execute a full pick-and-place sequence via the sim server.
 
@@ -205,6 +230,7 @@ class SimClient:
             "drop_position": drop_pose,
             "drop_quaternion": quat,
             "speed": max(0.0, min(1.0, speed_pct / 100.0)),
+            "pick_slot": pick_slot,
         }
         logger.info("pick_and_place REQUEST: %s", body)
         resp = await self._client.post(

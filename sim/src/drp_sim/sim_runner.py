@@ -31,6 +31,7 @@ import enum
 import logging
 import os
 import queue
+from collections.abc import Callable
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from typing import Any
@@ -54,22 +55,26 @@ _PICKUP_Y: float = 0.40  # midpoint of slot 1 (0.10) and slot 2 (0.70)
 _PICKUP_TOL: float = 0.40  # covers Y=0.0 to Y=0.80 — both pickup slots
 _BOX_CENTER_Z: float = -0.206  # box centre z on conveyor
 
-# Pallet slots and placement height
-_PALLET_SLOTS: list[tuple[float, float]] = [
-    (-0.657, -0.471),  # pallet 1 (/World/pallet_with_dollly_03)
-    (-0.647, 0.819),  # pallet 2 (/World/pallet_with_dollly_02)
+# Pallet USD prim paths (order: pallet 1 = Y<0, pallet 2 = Y>0)
+_PALLET_PRIM_PATHS: list[str] = [
+    "/World/pallet_with_dollly_03",  # pallet 1 (Y < 0)
+    "/World/pallet_with_dollly_02",  # pallet 2 (Y > 0)
 ]
-_SLOT_Z_C: float = -0.172  # pallet surface z (bbox top)
-_SWING_VIA_XY_NEG: tuple[float, float] = (0.0, -0.40)  # swing toward pallet 1 (y<0)
-_SWING_VIA_XY_POS: tuple[float, float] = (0.0, 0.40)  # swing toward pallet 2 (y>0)
+_DEFAULT_PALLET_SLOTS: list[tuple[float, float]] = [
+    (-0.657, -0.471),  # pallet 1 fallback
+    (-0.647, 0.819),  # pallet 2 fallback
+]
+_DEFAULT_SLOT_Z: float = -0.153  # pallet surface z fallback (measured bbox top)
+_SWING_VIA_XY_NEG: tuple[float, float] = (0.0, -0.80)  # swing toward pallet 1 (y<0)
+_SWING_VIA_XY_POS: tuple[float, float] = (0.0, 0.80)  # swing toward pallet 2 (y>0)
 
 
 # Custom cameras: created after env.reset() with explicit position/rotation/focal.
 _CUSTOM_CAMERA_DEFS: dict[str, dict] = {
     "front": {
         "path": "/World/Cam_Front",
-        "pos": (0.6, -2.5, 0.2),
-        "rot": (90.0, 0.0, 0.0),
+        "pos": (3.7, 0.0, 1.1),
+        "orient": (0.54371, 0.45209, 0.45209, 0.54371),  # (w, x, y, z)
         "focal": 24.0,
     },
     "top": {
@@ -94,6 +99,7 @@ class SimCommand(enum.Enum):
     SET_JOINTS = "set_joints"
     SPAWN_BOX = "spawn_box"
     GET_BOX_IMAGES = "get_box_images"
+    GET_BOX_IMAGES_FOR_IDS = "get_box_images_for_ids"
     GO_HOME = "go_home"
     GET_CAMERA = "get_camera"
     MOVE_PLANNED = "move_planned"
@@ -136,8 +142,12 @@ class SimRunner:
         self._motion_interface = None
         self._step_count = 0
         self._shutdown = False
-        # Placed boxes to pin every step: list of (box_rigid, [x, y, z])
-        self._placed_boxes: list[tuple[object, list[float]]] = []
+        # Placed boxes: (box_rigid, [x, y, z] center, (dx, dy, dz), origin_offset_z)
+        self._placed_boxes: list[tuple[object, list[float], tuple[float, float, float], float]] = []
+        # Pallet positions (populated from USD in _load_pallet_positions)
+        self._pallet_slots: list[tuple[float, float]] = list(_DEFAULT_PALLET_SLOTS)
+        self._slot_z: float = _DEFAULT_SLOT_Z
+        self._sim_app: Any = None
         # Per-view frame buffers and annotators
         self._view_buffers: dict[str, FrameBuffer] = {
             "front": FrameBuffer(),
@@ -166,6 +176,25 @@ class SimRunner:
     def sim_time(self) -> float:
         return self._step_count / _PHYSICS_HZ
 
+    def _wrap_step_callback(self, callback: Callable[[], None] | None = None) -> Callable[[], None]:
+        """Return a step callback that captures frames for active streams.
+
+        If *callback* is provided, it is called first, then frame capture
+        runs.  This keeps WebSocket streams alive during long-running
+        trajectory executions (cuRobo pick-place, move_planned, etc.)
+        that would otherwise block the main loop.
+        """
+
+        def _wrapped() -> None:
+            if callback is not None:
+                callback()
+            if any(buf.active for buf in self._view_buffers.values()):
+                self._capture_frames()
+            if self._sim_app is not None:
+                self._sim_app.update()
+
+        return _wrapped
+
     def run(self, sim_app: Any) -> None:
         """Main-thread blocking loop. Creates PalletizerEnv and processes the queue.
 
@@ -176,6 +205,12 @@ class SimRunner:
         """
         from drp_sim.env import PalletizerEnv
 
+        # Pre-build cuRobo MotionGen BEFORE Isaac Sim loads the scene.
+        # Isaac Sim's Vulkan/PhysX failures on datacenter GPUs corrupt
+        # the CUDA context, making cuRobo's warp kernels crash.  Building
+        # cuRobo first gives it a clean CUDA/warp state.
+        self._prebuild_motion_gen()
+
         # Always use load_robot=False: the USD scene already contains the
         # p3020 articulation at /p3020/root_joint.  Importing the URDF on
         # top creates a duplicate that splits visual mesh (static) from
@@ -185,9 +220,11 @@ class SimRunner:
             sim_app,
             load_robot=False,
             spawn_boxes=self._spawn_boxes,
+            seed=47,
         )
 
         self._env.reset()
+        self._load_pallet_positions()
 
         # Wrap the existing scene robot (same approach as cli.py)
         if self._load_robot:
@@ -198,6 +235,7 @@ class SimRunner:
         self._attach_gripper_geometry()
         self._init_motion()
         self._teleport_to_home()
+        self._sim_app = sim_app
         logger.info("SimRunner: environment ready, entering main loop")
 
         while not self._shutdown:
@@ -208,7 +246,7 @@ class SimRunner:
                 self._step_count += 1
                 self._pin_placed_boxes()
 
-            sim_app.update()
+            self._sim_app.update()
 
             if any(buf.active for buf in self._view_buffers.values()):
                 self._capture_frames()
@@ -253,7 +291,11 @@ class SimRunner:
                     cam.CreateHorizontalApertureAttr(36.0)
                     xf = UsdGeom.Xformable(cam.GetPrim())
                     xf.AddTranslateOp().Set(Gf.Vec3d(*cam_def["pos"]))
-                    xf.AddRotateXYZOp().Set(Gf.Vec3f(*cam_def["rot"]))
+                    if "orient" in cam_def:
+                        w, x, y, z = cam_def["orient"]
+                        xf.AddOrientOp().Set(Gf.Quatf(w, x, y, z))
+                    else:
+                        xf.AddRotateXYZOp().Set(Gf.Vec3f(*cam_def["rot"]))
 
                 rp = rep.create.render_product(camera_path, (_CAMERA_WIDTH, _CAMERA_HEIGHT))
                 annotator = rep.AnnotatorRegistry.get_annotator("rgb")
@@ -324,6 +366,87 @@ class SimRunner:
             return
         attach_vgc10_gripper(prim_path)
 
+    def _prebuild_motion_gen(self) -> None:
+        """Pre-build cuRobo MotionGen before Isaac Sim loads the scene.
+
+        Must be called before PalletizerEnv.from_app() to get a clean CUDA/warp
+        context (Isaac Sim's Vulkan/PhysX failures corrupt it on datacenter GPUs).
+        """
+        if not self._load_robot:
+            return
+        try:
+            from drp_sim._constants import _PROCESSED_URDF, _URDF_PATH, preprocess_urdf
+            from drp_sim.motion_interface import MotionInterface
+
+            preprocess_urdf(_URDF_PATH, _PROCESSED_URDF)
+            logger.info("SimRunner: pre-building cuRobo MotionGen (clean CUDA context)...")
+            self._prebuilt_motion_gen = MotionInterface._build_motion_gen_static()
+            logger.info("SimRunner: cuRobo MotionGen pre-built OK")
+        except Exception:
+            logger.warning("SimRunner: cuRobo pre-build failed", exc_info=True)
+            self._prebuilt_motion_gen = None
+
+    def _load_pallet_positions(self) -> None:
+        """Read pallet surface positions from USD prims at scene init.
+
+        Falls back to _DEFAULT_PALLET_SLOTS / _DEFAULT_SLOT_Z if any prim
+        is missing or the read fails.
+        """
+        try:
+            import omni.usd
+            from pxr import Usd, UsdGeom
+
+            stage = omni.usd.get_context().get_stage()
+            slots: list[tuple[float, float]] = []
+            z_values: list[float] = []
+
+            for prim_path in _PALLET_PRIM_PATHS:
+                pallet_prim = stage.GetPrimAtPath(f"{prim_path}/pallet")
+                if not pallet_prim.IsValid():
+                    logger.warning(
+                        "Pallet prim %s/pallet not found, using fallback positions",
+                        prim_path,
+                    )
+                    return
+
+                cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
+                rng = cache.ComputeWorldBound(pallet_prim).ComputeAlignedRange()
+                lo, hi = rng.GetMin(), rng.GetMax()
+                cx = (lo[0] + hi[0]) / 2
+                cy = (lo[1] + hi[1]) / 2
+                top_z = hi[2]
+
+                slots.append((cx, cy))
+                z_values.append(top_z)
+                logger.info(
+                    "Pallet %s: surface center=(%.4f, %.4f), top_z=%.4f, dims=(%.3f, %.3f)",
+                    prim_path,
+                    cx,
+                    cy,
+                    top_z,
+                    hi[0] - lo[0],
+                    hi[1] - lo[1],
+                )
+
+            self._pallet_slots = slots
+            # bbox top from USD may differ from actual placement surface;
+            # log both the raw value and any configured override.
+            raw_z = z_values[0]
+            self._slot_z = _DEFAULT_SLOT_Z  # use measured surface Z
+            logger.info(
+                "Loaded %d pallet positions from USD: raw_bbox_top_z=%.4f, "
+                "using _DEFAULT_SLOT_Z=%.4f (override), slots=%s",
+                len(slots),
+                raw_z,
+                self._slot_z,
+                slots,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to load pallet positions from USD, using fallbacks",
+                exc_info=True,
+            )
+
     def _init_motion(self) -> None:
         """Initialise cuRobo MotionInterface. No-op if cuRobo is absent or robot not loaded."""
         if not self._load_robot:
@@ -333,8 +456,9 @@ class SimRunner:
         try:
             from drp_sim.motion_interface import MotionInterface
 
-            logger.info("SimRunner: warming up cuRobo MotionInterface...")
-            self._motion_interface = MotionInterface(self._env)
+            mg = getattr(self, "_prebuilt_motion_gen", None)
+            logger.info("SimRunner: creating MotionInterface (prebuilt=%s)...", mg is not None)
+            self._motion_interface = MotionInterface(self._env, motion_gen=mg)
             logger.info("SimRunner: cuRobo ready")
         except Exception:
             logger.warning(
@@ -428,13 +552,15 @@ class SimRunner:
 
     def _dispatch(self, cmd: SimCommand, payload: dict[str, Any]) -> Any:
         if cmd == SimCommand.PLAY:
-            if self._spawn_boxes and self._env is not None:
-                self._env.fill_buffer()
+            if self._env is not None and self._env._world is not None:
+                self._env._world.play()
             self._playing = True
             return {"status": "playing"}
 
         if cmd == SimCommand.PAUSE:
             self._playing = False
+            if self._env is not None and self._env._world is not None:
+                self._env._world.pause()
             return {"status": "paused"}
 
         if cmd == SimCommand.RESET:
@@ -443,6 +569,7 @@ class SimRunner:
                 self._init_cameras()
                 self._attach_gripper_geometry()
                 self._teleport_to_home()
+                self._init_motion()
             self._step_count = 0
             self._playing = False
             self._placed_boxes.clear()
@@ -470,8 +597,21 @@ class SimRunner:
         if cmd == SimCommand.SPAWN_BOX:
             if self._env is None:
                 return {"error": "env not initialized"}
-            prim_path = self._env.spawn_box()
-            return {"prim_path": prim_path, "box_count": len(self._env.boxes)}
+            try:
+                result = self._env.spawn_box()
+            except RuntimeError as exc:
+                return {"error": str(exc)}
+            # Step physics so _dispatch_next() fires and the box is created.
+            for _ in range(5):
+                self._env.step(render=False)
+            buffer = self._env._buffer
+            target = result["target_slot"]
+            prim_path = ""
+            if buffer._slots[target] is not None:
+                prim_path = buffer._slots[target].prim_path
+            elif buffer._in_transit is not None:
+                prim_path = buffer._in_transit.prim_path
+            return {"prim_path": prim_path, "box_count": buffer.occupied_count}
 
         if cmd == SimCommand.GET_BOX_IMAGES:
             if self._env is None or self._env.image_capture is None:
@@ -496,7 +636,11 @@ class SimRunner:
             target = payload["target"]
             execute = payload.get("execute", True)
             try:
-                trajectory = self._motion_interface.move_to_joints(target, execute=execute)
+                trajectory = self._motion_interface.move_to_joints(
+                    target,
+                    execute=execute,
+                    step_callback=self._wrap_step_callback(),
+                )
             except RuntimeError as exc:
                 return {"error": str(exc)}
             return {"trajectory": trajectory}
@@ -514,8 +658,9 @@ class SimRunner:
             if result is None:
                 return {"status": "empty", "slot": index}
             path, _ = result
-            fill = self._env.fill_buffer()
-            return {"status": "ok", "slot": index, "prim_path": path, **fill}
+            if self._env._buffer is not None:
+                self._env._buffer.spawn_one()
+            return {"status": "ok", "slot": index, "prim_path": path}
 
         if cmd == SimCommand.MOVE_CARTESIAN:
             if self._motion_interface is None:
@@ -525,7 +670,11 @@ class SimRunner:
             execute = payload.get("execute", True)
             try:
                 trajectory = self._motion_interface.move_to_pose(
-                    position, quaternion, execute=execute, orientation_constraint=True
+                    position,
+                    quaternion,
+                    execute=execute,
+                    orientation_constraint=True,
+                    step_callback=self._wrap_step_callback(),
                 )
             except RuntimeError as exc:
                 return {"error": str(exc)}
@@ -549,13 +698,27 @@ class SimRunner:
         if cmd == SimCommand.GET_BUFFER_STATUS:
             buffer = getattr(self._env, "_buffer", None) if self._env else None
             if buffer is None:
-                return {"occupied": 0, "capacity": 0, "slots": [], "in_transit": False}
+                return {
+                    "occupied": 0,
+                    "capacity": 0,
+                    "slots": [],
+                    "in_transit": False,
+                    "box_ids": [],
+                }
+            slot_ids = buffer.slot_box_ids
             return {
                 "occupied": buffer.occupied_count,
                 "capacity": buffer.slot_count,
                 "slots": buffer.slot_states,
                 "in_transit": buffer._in_transit is not None,
+                "box_ids": [bid for bid in slot_ids if bid is not None],
             }
+
+        if cmd == SimCommand.GET_BOX_IMAGES_FOR_IDS:
+            if self._env is None or self._env.image_capture is None:
+                return {"images": []}
+            box_ids = payload.get("box_ids", [])
+            return {"images": self._env.image_capture.get_images_for_ids(box_ids)}
 
         return {"error": f"unknown command: {cmd}"}  # pragma: no cover
 
@@ -622,30 +785,77 @@ class SimRunner:
         return {"removed": len(removed)}
 
     def _remove_box(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Remove a box by popping the nearest buffer slot.
+        """Remove a box from the buffer.
 
-        The logical ``box_id`` (e.g. ``box_0001``) from the app has no direct
-        mapping to the sim prim path.  We pop the first occupied buffer slot.
+        When ``respawn`` is True (default), a replacement box is queued
+        immediately via ``spawn_one()``.  When False, the box is simply
+        released — the caller is responsible for calling ``fill_buffer()``
+        after all removals are complete.
+
+        When ``slot`` is provided, that exact buffer slot is popped.
+        Otherwise falls back to the first occupied slot.
         """
         if self._env is None:
             return {"error": "env not initialized"}
 
         box_id: str = payload["box_id"]
+        requested_slot: int | None = payload.get("slot")
+        respawn: bool = payload.get("respawn", True)
         buffer = getattr(self._env, "_buffer", None)
 
         if buffer is not None:
-            # Pop the first occupied slot and release to pool
+            if requested_slot is not None:
+                result = buffer.pop_box_at(requested_slot)
+                if result is not None:
+                    box_prim, prim_path = result
+                    if respawn:
+                        self._release_and_respawn(
+                            buffer,
+                            box_prim,
+                            prim_path,
+                            box_id,
+                            requested_slot,
+                        )
+                    else:
+                        buffer.release_box(box_prim, prim_path=prim_path)
+                        logger.info("Removed box %s (slot %d, no respawn)", box_id, requested_slot)
+                    return {"status": "ok", "box_id": box_id}
+                logger.warning(
+                    "Requested slot %d empty, falling back to first occupied",
+                    requested_slot,
+                )
+
             for i in range(buffer.slot_count):
                 result = buffer.pop_box_at(i)
                 if result is not None:
                     box_prim, prim_path = result
-                    buffer.release_box(box_prim, prim_path=prim_path)
-                    logger.info("Removed box %s (buffer slot %d -> %s)", box_id, i, prim_path)
-                    buffer.fill()
+                    if respawn:
+                        self._release_and_respawn(buffer, box_prim, prim_path, box_id, i)
+                    else:
+                        buffer.release_box(box_prim, prim_path=prim_path)
+                        logger.info("Removed box %s (slot %d, no respawn)", box_id, i)
                     return {"status": "ok", "box_id": box_id}
 
         logger.warning("No box found in buffer to remove for %s", box_id)
         return {"status": "not_found", "box_id": box_id}
+
+    def _release_and_respawn(
+        self,
+        buffer: object,
+        box_prim: object,
+        prim_path: str,
+        box_id: str,
+        slot: int,
+    ) -> None:
+        """Zero velocity, hide, release, and queue a replacement spawn."""
+        import numpy as np
+
+        with contextlib.suppress(Exception):
+            box_prim.set_linear_velocities(np.zeros((1, 3)))
+            box_prim.set_angular_velocities(np.zeros((1, 3)))
+        buffer.release_box(box_prim, prim_path=prim_path)
+        logger.info("Removed box %s (buffer slot %d -> %s)", box_id, slot, prim_path)
+        buffer.spawn_one()
 
     def _find_box_near(self, x: float, y: float, tol: float = 0.15) -> tuple[object, str] | None:
         """Return ``(box_prim, prim_path)`` for the first spawner box near (x, y)."""
@@ -681,15 +891,18 @@ class SimRunner:
             return {"status": "error", "message": "no box in pickup zone"}
 
         _box_prim, prim_path = found
-        slot_x, slot_y = _PALLET_SLOTS[slot - 1]
+        slot_x, slot_y = self._pallet_slots[slot - 1]
         logger.info("auto_pick: slot %d (%.3f, %.3f)", slot, slot_x, slot_y)
 
-        # Use unified pick_place handler with fixed pickup zone position
+        # Use unified pick_place handler with fixed pickup zone position.
+        # adjust_drop_z: auto_pick sends pallet surface Z, so the handler
+        # must add carried_half_h to place the box bottom on the surface.
         result = self._handle_pick_and_place(
             {
                 "box_prim": prim_path,
                 "pick_position": [_PICKUP_X, _PICKUP_Y, _BOX_CENTER_Z],
-                "drop_position": [slot_x, slot_y, _SLOT_Z_C],
+                "drop_position": [slot_x, slot_y, self._slot_z],
+                "adjust_drop_z": True,
             }
         )
 
@@ -725,10 +938,11 @@ class SimRunner:
         ``_EE_QUAT_DOWN`` so cuRobo plans the correct end-effector pose.
         """
         logger.info(
-            "pick_and_place START: pick=%s drop=%s quat=%s",
+            "pick_and_place START: pick=%s drop=%s quat=%s adjust_drop_z=%s",
             payload.get("pick_position"),
             payload.get("drop_position"),
             payload.get("drop_quaternion"),
+            payload.get("adjust_drop_z", False),
         )
         if self._motion_interface is None:
             logger.error("pick_and_place: motion planning unavailable")
@@ -739,9 +953,16 @@ class SimRunner:
 
         import numpy as np
 
+        # Update cuRobo collision world with placed pallet boxes
+        n_obs = self._motion_interface.update_pallet_obstacles(
+            placed_boxes=self._placed_boxes,
+        )
+        logger.info("pick_and_place: updated cuRobo world with %d obstacles", n_obs)
+
         pick_pos = list(payload["pick_position"])
         drop_pos = payload["drop_position"]
         drop_quat_logical: list[float] = payload.get("drop_quaternion", [1.0, 0.0, 0.0, 0.0])
+        pick_slot: int | None = payload.get("pick_slot")
 
         # Compose logical drop rotation with gripper-down base orientation.
         # EE base: 180-deg around X = [0, 1, 0, 0] (suction cup faces down).
@@ -761,36 +982,52 @@ class SimRunner:
         box_prim_path: str | None = None
         box_rigid = None  # reuse the buffer's RigidPrim (batch API)
 
+        best_origin_offset = 0.0
         if buffer is not None:
-            # Find the nearest occupied buffer slot to the requested pick Y
+            # Use explicit pick_slot if provided; fall back to nearest-Y search.
             best_idx: int | None = None
-            best_dist = float("inf")
             best_half_h = 0.0
-            for i, slot in enumerate(buffer._slots):
-                if slot is None:
-                    continue
-                dist = abs(slot.assigned_position[1] - pick_pos[1])
-                if dist < best_dist:
-                    best_dist = dist
-                    best_idx = i
+            if pick_slot is not None and 0 <= pick_slot < buffer.slot_count:
+                slot = buffer._slots[pick_slot]
+                if slot is not None:
+                    best_idx = pick_slot
                     best_half_h = slot.box_half_h
+                    best_origin_offset = slot.origin_offset_z
+                else:
+                    logger.warning(
+                        "pick_slot %d is empty, falling back to spatial search", pick_slot
+                    )
+            if best_idx is None:
+                best_dist = float("inf")
+                for i, slot in enumerate(buffer._slots):
+                    if slot is None:
+                        continue
+                    dist = abs(slot.assigned_position[1] - pick_pos[1])
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_idx = i
+                        best_half_h = slot.box_half_h
+                        best_origin_offset = slot.origin_offset_z
 
             if best_idx is not None:
                 result = buffer.pop_box_at(best_idx)
                 if result is not None:
                     box_rigid, box_prim_path = result
                     # Adjust pick Z to the TOP of this box so gripper contacts
-                    # the surface (different box heights).
+                    # the surface.  Buffer slot Z is the prim *origin*; add
+                    # origin_offset to reach centre, then half_h to reach top.
                     slot_pos = buffer._compute_slot_position(best_idx)
-                    pick_pos[2] = slot_pos[2] + best_half_h
+                    pick_pos[2] = slot_pos[2] + best_origin_offset + best_half_h
                     # Use the actual buffer slot XY as pick position
                     pick_pos[0] = slot_pos[0]
                     pick_pos[1] = slot_pos[1]
                     logger.info(
-                        "Resolved box from buffer slot %d: %s (half_h=%.3f, pick_z=%.3f)",
+                        "Resolved box from buffer slot %d: %s "
+                        "(half_h=%.3f, origin_offset=%.3f, pick_z=%.3f)",
                         best_idx,
                         box_prim_path,
                         best_half_h,
+                        best_origin_offset,
                         pick_pos[2],
                     )
 
@@ -799,44 +1036,91 @@ class SimRunner:
             found = self._find_box_near(pick_pos[0], pick_pos[1], tol=0.5)
             if found is not None:
                 box_rigid, box_prim_path = found
+                # Derive half_h from the box rigid body world-space bbox
+                try:
+                    import omni.usd
+                    from pxr import Usd, UsdGeom
+
+                    stage = omni.usd.get_context().get_stage()
+                    prim = stage.GetPrimAtPath(box_prim_path)
+                    if prim.IsValid():
+                        cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
+                        bbox = cache.ComputeWorldBound(prim).ComputeAlignedRange()
+                        box_z_extent = bbox.GetMax()[2] - bbox.GetMin()[2]
+                        if box_z_extent > 0.01:
+                            best_half_h = box_z_extent / 2.0
+                            logger.info("Spatial fallback box half_h=%.3f from bbox", best_half_h)
+                except Exception:
+                    pass
                 logger.info("Resolved box by spatial search: %s", box_prim_path)
 
         if box_prim_path is None or box_rigid is None:
             logger.error("pick_and_place: no box found near pick position %s", pick_pos)
             return {"status": "error", "message": f"no box found near pick position {pick_pos}"}
 
+        # Dynamic clearance: carried box half-height and pallet stack height
+        carried_half_h = best_half_h if best_half_h > 0 else 0.125
+        # EE-to-box-centre offset: gripper length + box half-height
+        attach_z = vgc10_len + carried_half_h
+        # When called from auto_pick, drop Z is the pallet surface;
+        # offset by half the box height so the bottom rests on the surface.
+        if payload.get("adjust_drop_z"):
+            drop_pos[2] = drop_pos[2] + carried_half_h
+            logger.info(
+                "pick_and_place: adjusted drop_z=%.3f (half_h=%.3f)", drop_pos[2], carried_half_h
+            )
+
+        max_placed_top_z = self._slot_z
+        for _rigid, placed_pos, placed_dims, _off in self._placed_boxes:
+            if (placed_pos[1] > 0) == (drop_pos[1] > 0):
+                placed_top = placed_pos[2] + placed_dims[2] / 2
+                max_placed_top_z = max(max_placed_top_z, placed_top)
+        min_swing_ee_z = max_placed_top_z + 2 * carried_half_h + vgc10_len + above_clearance
+        logger.info(
+            "pick_and_place clearance: carried_half_h=%.3f, "
+            "max_placed_top_z=%.3f, min_swing_ee_z=%.3f",
+            carried_half_h,
+            max_placed_top_z,
+            min_swing_ee_z,
+        )
+
         def _snap(pos: tuple[float, ...] | list[float]) -> None:
-            box_rigid.set_world_poses(positions=np.array([pos]))
+            # pos is the desired box geometric centre; convert to prim origin
+            # by subtracting origin_offset_z (non-zero when USD origin ≠ centre).
+            origin = [pos[0], pos[1], pos[2] - best_origin_offset]
+            box_rigid.set_world_poses(positions=np.array([origin]))
             box_rigid.set_linear_velocities(np.array([[0.0, 0.0, 0.0]]))
             box_rigid.set_angular_velocities(np.array([[0.0, 0.0, 0.0]]))
+
+        pin_pos = [pick_pos[0], pick_pos[1], pick_pos[2] - carried_half_h]
 
         def _pre_pin() -> None:
             """Run BEFORE world.step(): pin buffer boxes + target box at pick pos."""
             if buffer is not None:
-                buffer._enforce_slot_positions()
-            _snap(pick_pos)
+                buffer.step()
+            _snap(pin_pos)
 
         def _pre_track() -> None:
             """Run BEFORE world.step(): pin buffer boxes + target box at EE."""
             if buffer is not None:
-                buffer._enforce_slot_positions()
+                buffer.step()
             ex, ey, ez = self._motion_interface.get_ee_position()
-            _snap((ex, ey, ez - vgc10_len))
+            _snap((ex, ey, ez - attach_z))
 
         def _post_pin() -> None:
             """Run AFTER world.step(): re-snap target box at pick pos."""
-            _snap(pick_pos)
+            _snap(pin_pos)
 
         def _post_track() -> None:
             """Run AFTER world.step(): re-snap target box to EE."""
             ex, ey, ez = self._motion_interface.get_ee_position()
-            _snap((ex, ey, ez - vgc10_len))
+            _snap((ex, ey, ez - attach_z))
 
         steps: list[str] = []
 
         # Initial snap: ensure box is exactly at pick position before any
         # robot motion begins (mirrors cli.py line 160).
-        _snap(pick_pos)
+        _snap(pin_pos)
 
         try:
             # 1. Approach above pick position (pin box before+after physics)
@@ -849,9 +1133,10 @@ class SimRunner:
                 above_pick,
                 list(_EE_QUAT_DOWN),
                 pre_step_callback=_pre_pin,
-                step_callback=_post_pin,
+                step_callback=self._wrap_step_callback(_post_pin),
             )
             steps.append("above_pick")
+            self._capture_frames()
 
             # 2. Descend to pick (keep pinning before+after physics)
             pick_ee = [pick_pos[0], pick_pos[1], pick_pos[2] + vgc10_len]
@@ -860,99 +1145,121 @@ class SimRunner:
                 pick_ee,
                 list(_EE_QUAT_DOWN),
                 pre_step_callback=_pre_pin,
-                step_callback=_post_pin,
+                step_callback=self._wrap_step_callback(_post_pin),
             )
             steps.append("pick")
+            self._capture_frames()
 
             # 3. Attach: snap box to current EE position
             _post_track()
             steps.append("attach")
+            self._capture_frames()
             logger.info("pick_and_place [3/9] attach")
 
             # 4. Lift straight up (box follows EE before+after physics)
-            lift_z = above_pick[2] + lift_clearance
+            lift_z = max(above_pick[2] + lift_clearance, min_swing_ee_z)
             lift = [pick_pos[0], pick_pos[1], lift_z]
             logger.info("pick_and_place [4/9] lift: %s", lift)
             self._motion_interface.move_to_pose(
                 lift,
                 list(_EE_QUAT_DOWN),
                 pre_step_callback=_pre_track,
-                step_callback=_post_track,
+                step_callback=self._wrap_step_callback(_post_track),
             )
             steps.append("lift")
+            self._capture_frames()
 
             # 5. Swing via intermediate waypoint (high enough to clear pallet boxes)
             #    Pick swing side based on drop Y: negative Y -> pallet 1, positive Y -> pallet 2
             swing_xy = _SWING_VIA_XY_POS if drop_pos[1] > 0 else _SWING_VIA_XY_NEG
-            swing_z = max(lift_z, 0.60)
+            swing_z = max(lift_z, 0.60, min_swing_ee_z)
             swing_via = [swing_xy[0], swing_xy[1], swing_z]
             logger.info("pick_and_place [5/9] swing_via: %s", swing_via)
             self._motion_interface.move_to_pose(
                 swing_via,
                 list(_EE_QUAT_DOWN),
                 pre_step_callback=_pre_track,
-                step_callback=_post_track,
+                step_callback=self._wrap_step_callback(_post_track),
             )
             steps.append("swing_via")
+            self._capture_frames()
 
             # 6. Move to high above pallet
-            pallet_high = [drop_pos[0], drop_pos[1], 0.70]
+            pallet_high = [drop_pos[0], drop_pos[1], max(0.70, min_swing_ee_z)]
             logger.info("pick_and_place [6/9] pallet_high: %s", pallet_high)
             self._motion_interface.move_to_pose(
                 pallet_high,
                 ee_quat,
                 pre_step_callback=_pre_track,
-                step_callback=_post_track,
+                step_callback=self._wrap_step_callback(_post_track),
             )
             steps.append("pallet_high")
+            self._capture_frames()
 
             # 7. Carry to above drop position (box follows EE)
-            above_drop = [drop_pos[0], drop_pos[1], drop_pos[2] + vgc10_len + above_clearance]
+            above_drop = [drop_pos[0], drop_pos[1], drop_pos[2] + attach_z + above_clearance]
             logger.info("pick_and_place [7/9] above_drop: %s", above_drop)
             self._motion_interface.move_to_pose(
                 above_drop,
                 ee_quat,
                 pre_step_callback=_pre_track,
-                step_callback=_post_track,
+                step_callback=self._wrap_step_callback(_post_track),
             )
             steps.append("above_drop")
+            self._capture_frames()
 
             # 8. Descend to place (box follows EE)
-            place_ee = [drop_pos[0], drop_pos[1], drop_pos[2] + vgc10_len]
+            place_ee = [drop_pos[0], drop_pos[1], drop_pos[2] + attach_z]
             logger.info("pick_and_place [8/9] place: %s", place_ee)
             self._motion_interface.move_to_pose(
                 place_ee,
                 ee_quat,
                 pre_step_callback=_pre_track,
-                step_callback=_post_track,
+                step_callback=self._wrap_step_callback(_post_track),
             )
             steps.append("place")
+            self._capture_frames()
 
-            # 9. Detach: snap box to final resting position with correct orientation
-            self._detach_box(box_prim_path, drop_pos, drop_quat_logical)
+            # 9. Detach: snap box to final resting position with correct orientation.
+            # _detach_box writes the USD translate op which expects the prim
+            # origin, so pass the origin-corrected position.
+            origin_drop = [drop_pos[0], drop_pos[1], drop_pos[2] - best_origin_offset]
+            self._detach_box(box_prim_path, origin_drop, drop_quat_logical)
             _snap(drop_pos)
             steps.append("detach")
-            logger.info("pick_and_place [9/9] detach at %s", drop_pos)
+            logger.info(
+                "pick_and_place [9/9] detach at center=%s "
+                "(pallet_surface_z=%.4f, box_bottom_z=%.4f, "
+                "carried_half_h=%.4f, origin_offset_z=%.4f, "
+                "origin_z=%.4f)",
+                drop_pos,
+                self._slot_z,
+                drop_pos[2] - carried_half_h,
+                carried_half_h,
+                best_origin_offset,
+                drop_pos[2] - best_origin_offset,
+            )
 
         except RuntimeError as exc:
             logger.error("pick_and_place FAILED at step %s: %s", steps, exc)
-            # Refill buffer even on failure so new boxes spawn to replace the
+            # Refill one slot even on failure so a new box replaces the
             # popped box that was orphaned by the failed sequence.
             try:
                 if buffer is not None:
-                    buffer.fill()
+                    buffer.spawn_one()
             except Exception:
                 pass
             return {"status": "error", "message": str(exc), "steps": steps}
 
         # Track the placed box so the main loop keeps it pinned at drop_pos.
-        self._placed_boxes.append((box_rigid, list(drop_pos)))
+        box_dims = (0.50, 0.50, carried_half_h * 2)
+        self._placed_boxes.append((box_rigid, list(drop_pos), box_dims, best_origin_offset))
 
-        # Refill buffer after picking. The box prim stays at drop_pos (no pool).
+        # Refill one buffer slot after picking.
         try:
             if buffer is not None:
-                buffer.fill()
-                logger.info("pick_and_place: buffer refill triggered")
+                buffer.spawn_one()
+                logger.info("pick_and_place: buffer spawn_one triggered")
         except Exception:
             logger.warning("Post-placement cleanup failed", exc_info=True)
 
@@ -1034,9 +1341,10 @@ class SimRunner:
         import numpy as np
 
         dead: list[int] = []
-        for i, (box_rigid, pos) in enumerate(self._placed_boxes):
+        for i, (box_rigid, pos, _dims, offset) in enumerate(self._placed_boxes):
             try:
-                box_rigid.set_world_poses(positions=np.array([pos]))
+                # pos is box centre; subtract origin_offset_z for set_world_poses
+                box_rigid.set_world_poses(positions=np.array([[pos[0], pos[1], pos[2] - offset]]))
             except Exception:
                 dead.append(i)
         for i in reversed(dead):

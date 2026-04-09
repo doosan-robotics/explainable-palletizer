@@ -8,6 +8,7 @@ cuRobo must be installed in the same Python environment as Isaac Sim.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from collections.abc import Callable
@@ -29,8 +30,9 @@ _BOX_ATTACH_Z: float = _VGC_LEN + _BOX_HALF_H  # EE-to-box-centre offset (0.333 
 
 
 _DEFAULT_CFG = _CUROBO_CFG_PATH
-# cuRobo requires CUDA; this variable makes the device dependency explicit.
-_DEVICE = "cuda"
+# cuRobo requires CUDA. CUROBO_DEVICE allows running on a separate GPU to
+# avoid CUDA context conflicts with Isaac Sim on datacenter GPUs.
+_DEVICE = os.environ.get("CUROBO_DEVICE", "cuda:0")
 
 
 class MotionInterface:
@@ -48,10 +50,11 @@ class MotionInterface:
         self,
         env: PalletizerEnv,
         robot_cfg_path: str = _DEFAULT_CFG,
+        motion_gen: object | None = None,
     ) -> None:
         self._env = env
         self._cfg_path = os.path.abspath(robot_cfg_path)
-        self._motion_gen = self._build_motion_gen()
+        self._motion_gen = motion_gen if motion_gen is not None else self._build_motion_gen()
 
     # ------------------------------------------------------------------
     # Public interface
@@ -192,20 +195,21 @@ class MotionInterface:
     # ------------------------------------------------------------------
 
     def _build_motion_gen(self):
+        return self._build_motion_gen_static(self._cfg_path)
+
+    @staticmethod
+    def _build_motion_gen_static(cfg_path: str = _DEFAULT_CFG):
         """Instantiate and return a configured ``MotionGen`` object.
 
-        Uses ``CollisionCheckerType.PRIMITIVE`` (cuboid-only, warp-free) so
-        the motion gen works when cuRobo is imported before SimulationApp
-        (which otherwise caches pip warp 1.11 and breaks WorldMeshCollision).
-        Initialises with an empty world model so pallet obstacles can be added
-        later via :meth:`update_pallet_obstacles`.
+        Can be called without a MotionInterface instance (for pre-building
+        before Isaac Sim loads the scene and corrupts the CUDA context).
         """
         from curobo.geom.sdf.world import CollisionCheckerType
         from curobo.geom.types import Cuboid, WorldConfig
         from curobo.types.robot import RobotConfig
         from curobo.wrap.reacher.motion_gen import MotionGen, MotionGenConfig
 
-        with open(self._cfg_path) as f:
+        with open(os.path.abspath(cfg_path)) as f:
             cfg_dict = yaml.safe_load(f)
 
         # Replace package:// URIs so cuRobo can find meshes
@@ -221,21 +225,143 @@ class MotionInterface:
         )
         world_model = WorldConfig(cuboid=[ground])
 
-        robot_cfg = RobotConfig.from_dict(cfg_dict)
-        mg_cfg = MotionGenConfig.load_from_robot_config(
-            robot_cfg,
-            world_model=world_model,
-            collision_checker_type=CollisionCheckerType.PRIMITIVE,
-            interpolation_dt=1.0 / 60.0,
-        )
-        mg = MotionGen(mg_cfg)
-        mg.warmup(enable_graph=False)
+        import torch
+        from curobo.types.base import TensorDeviceType
+
+        device = torch.device(_DEVICE)
+        tensor_args = TensorDeviceType(device=device)
+
+        # cuRobo uses both PyTorch and Isaac Sim's bundled warp for CUDA
+        # kernels.  Both maintain separate default-device state.  Temporarily
+        # switch both defaults so all allocations land on the target GPU,
+        # then restore for Isaac Sim.
+        prev_torch_device = torch.cuda.current_device()
+        prev_warp_device = None
+        if device.type == "cuda":
+            torch.cuda.set_device(device)
+            try:
+                import warp as wp
+
+                logger.info(
+                    "warp: ver=%s file=%s devs=%d cur=%s",
+                    getattr(wp, "__version__", "?"),
+                    getattr(wp, "__file__", "?"),
+                    wp.get_cuda_device_count(),
+                    wp.get_device(),
+                )
+                prev_warp_device = wp.get_device()
+                wp.set_device(str(device))
+                logger.info("warp: after set_device -> %s", wp.get_device())
+            except Exception as e:
+                logger.warning("warp set_device failed: %s", e)
+
+        try:
+            robot_cfg = RobotConfig.from_dict(cfg_dict, tensor_args=tensor_args)
+            mg_cfg = MotionGenConfig.load_from_robot_config(
+                robot_cfg,
+                world_model=world_model,
+                tensor_args=tensor_args,
+                collision_checker_type=CollisionCheckerType.PRIMITIVE,
+                interpolation_dt=1.0 / 60.0,
+                use_cuda_graph=False,
+            )
+            mg = MotionGen(mg_cfg)
+            MotionInterface._fix_tensor_args(mg, tensor_args)
+            MotionInterface._disable_lbfgs_cuda_kernel(mg)
+            mg.warmup(enable_graph=False)
+        finally:
+            torch.cuda.set_device(prev_torch_device)
+            if prev_warp_device is not None:
+                with contextlib.suppress(Exception):
+                    wp.set_device(str(prev_warp_device))
+
         return mg
+
+    @staticmethod
+    def _fix_tensor_args(mg, tensor_args) -> None:
+        """Recursively fix tensor_args and move tensors to target device.
+
+        cuRobo doesn't propagate tensor_args to all sub-components, so
+        tensors end up on cuda:0.  This walks the object graph, patches
+        tensor_args, and moves existing tensors to the correct device.
+        """
+        import torch
+        from curobo.types.base import TensorDeviceType
+
+        target = tensor_args.device
+        seen: set[int] = set()
+        moved = 0
+
+        def _walk(obj):
+            nonlocal moved
+            oid = id(obj)
+            if oid in seen:
+                return
+            seen.add(oid)
+            try:
+                if (
+                    hasattr(obj, "tensor_args")
+                    and isinstance(obj.tensor_args, TensorDeviceType)
+                    and obj.tensor_args.device != target
+                ):
+                    object.__setattr__(obj, "tensor_args", tensor_args)
+            except (RecursionError, Exception):
+                return
+            for name, val in list(vars(obj).items()):
+                if isinstance(val, torch.Tensor) and val.device != target:
+                    object.__setattr__(obj, name, val.to(target))
+                    moved += 1
+                elif hasattr(val, "__dict__"):
+                    _walk(val)
+
+        _walk(mg)
+        logger.info(
+            "_fix_tensor_args: visited %d objects, moved %d tensors to %s", len(seen), moved, target
+        )
+
+    @staticmethod
+    def _disable_lbfgs_cuda_kernel(mg):
+        """Disable LBFGS CUDA kernel — buggy on sm_90 datacenter GPUs."""
+        seen: set[int] = set()
+        patched = 0
+
+        def _walk(obj):
+            nonlocal patched
+            oid = id(obj)
+            if oid in seen:
+                return
+            seen.add(oid)
+            try:
+                if getattr(obj, "use_cuda_kernel", False):
+                    object.__setattr__(obj, "use_cuda_kernel", False)
+                    patched += 1
+            except (RecursionError, Exception):
+                return
+            try:
+                for val in vars(obj).values():
+                    if isinstance(val, list | tuple):
+                        for item in val:
+                            if hasattr(item, "__dict__"):
+                                _walk(item)
+                    elif isinstance(val, dict):
+                        for item in val.values():
+                            if hasattr(item, "__dict__"):
+                                _walk(item)
+                    elif hasattr(val, "__dict__"):
+                        _walk(val)
+            except (RecursionError, Exception):
+                pass
+
+        _walk(mg)
+        logger.info("_disable_lbfgs_cuda_kernel: patched %d objects", patched)
 
     def update_pallet_obstacles(
         self,
         pallet_y_max: float = 0.0,
-        box_dims: tuple[float, float, float] = (0.30, 0.25, 0.22),
+        default_box_dims: tuple[float, float, float] = (0.30, 0.25, 0.22),
+        placed_boxes: (
+            list[tuple[object, list[float], tuple[float, float, float], float]] | None
+        ) = None,
     ) -> int:
         """Update cuRobo world model with boxes currently placed on the pallet.
 
@@ -248,9 +374,11 @@ class MotionInterface:
         ----------
         pallet_y_max:
             Boxes with world y >= this value are on the conveyor and skipped.
-        box_dims:
-            (width, depth, height) conservative bounding box for each placed
-            box (default adds ~5 cm margin on all sides).
+        default_box_dims:
+            (width, depth, height) fallback bounding box for spawner boxes
+            that lack per-box dimension data.
+        placed_boxes:
+            Manually tracked placed boxes as (rigid, [x,y,z], (dx,dy,dz)).
 
         Returns
         -------
@@ -264,7 +392,21 @@ class MotionInterface:
             self._motion_gen.update_world_obstacles(WorldConfig())
             return 0
 
-        cuboids: list[Cuboid] = []
+        margin = 0.05  # collision margin per axis
+
+        # Always include static obstacles (ground + conveyor)
+        cuboids: list[Cuboid] = [
+            Cuboid(
+                name="ground",
+                pose=[0.0, 0.0, -0.55, 1.0, 0.0, 0.0, 0.0],
+                dims=[2.0, 2.0, 0.01],
+            ),
+            Cuboid(
+                name="conveyor",
+                pose=[1.55, 0.40, -0.275, 1.0, 0.0, 0.0, 0.0],
+                dims=[2.90, 0.70, 1.25],
+            ),
+        ]
         for i, (box_prim, _path, _step) in enumerate(spawner._boxes):
             try:
                 pos, _ = box_prim.get_world_poses()
@@ -282,11 +424,24 @@ class MotionInterface:
                             0.0,
                             0.0,
                         ],
-                        dims=list(box_dims),
+                        dims=list(default_box_dims),
                     )
                 )
             except Exception:
                 continue
+
+        # Include manually tracked placed boxes with per-box dimensions.
+        # pos is the box geometric centre; cuRobo Cuboid.pose expects the
+        # centre, so pos is used directly (no origin offset needed here).
+        if placed_boxes:
+            for j, (_box_rigid, pos, dims, _offset) in enumerate(placed_boxes):
+                cuboids.append(
+                    Cuboid(
+                        name=f"placed_box_{j}",
+                        pose=[pos[0], pos[1], pos[2], 1.0, 0.0, 0.0, 0.0],
+                        dims=[d + margin for d in dims],
+                    )
+                )
 
         world_cfg = WorldConfig(cuboid=cuboids) if cuboids else WorldConfig()
         self._motion_gen.update_world(world_cfg)

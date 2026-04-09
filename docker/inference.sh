@@ -145,7 +145,7 @@ do_up() {
     fi
     export VLLM_IMAGE
 
-    local model="${INFERENCE_MODEL:-nvidia/Cosmos-Reason2-2B}"
+    local model="${INFERENCE_MODEL:-nvidia/Cosmos-Reason2-8B}"
     local port="${INFERENCE_PORT:-8200}"
     info "Model : ${model}"
     info "Port  : ${port}"

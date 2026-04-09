@@ -107,6 +107,9 @@ class PickPlaceRequest(BaseModel):
         ),
     )
     speed: float = Field(default=1.0, gt=0.0, le=1.0, description="Speed fraction (not yet used)")
+    pick_slot: int | None = Field(
+        default=None, description="Buffer slot index (0-based), overrides spatial search"
+    )
 
 
 class PickPlaceResponse(BaseModel):
@@ -164,6 +167,8 @@ class BoxImagesResponse(BaseModel):
 
 class RemoveBoxRequest(BaseModel):
     box_id: str = Field(..., description="Logical box ID (e.g. box_0001)")
+    slot: int | None = Field(None, description="Buffer slot index to pop (None = first occupied)")
+    respawn: bool = Field(True, description="Queue a replacement spawn after removal")
 
 
 class RemoveBoxResponse(BaseModel):
@@ -196,3 +201,10 @@ class BufferStatusResponse(BaseModel):
     capacity: int = 0
     slots: list[int] = Field(default_factory=list)
     in_transit: bool = False
+    box_ids: list[str] = Field(default_factory=list)
+
+
+class BoxImagesForIdsRequest(BaseModel):
+    box_ids: list[str] = Field(
+        ..., description="Box IDs to retrieve images for (e.g. ['box_0001'])"
+    )

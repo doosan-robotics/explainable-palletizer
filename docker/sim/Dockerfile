@@ -8,8 +8,10 @@ ARG CUDA_DEVEL=nvidia/cuda:12.8.0-devel-ubuntu24.04
 
 FROM ${CUDA_DEVEL}
 
-# TORCH_BACKEND must be declared after FROM to be available in RUN commands.
-ARG TORCH_BACKEND=cu128
+# TORCH_BACKEND: "auto" (default) detects from the base image's nvcc version,
+# guaranteeing PyTorch and cuRobo CUDA extensions always match.
+# Override with cu128 or cu130 to pin a specific backend.
+ARG TORCH_BACKEND=auto
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONDONTWRITEBYTECODE=1

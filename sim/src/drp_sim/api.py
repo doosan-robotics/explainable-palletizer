@@ -20,6 +20,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from drp_sim.api_models import (
     AutoPickRequest,
     AutoPickResponse,
+    BoxImagesForIdsRequest,
     BoxImagesResponse,
     BufferStatusResponse,
     CameraResponse,
@@ -187,6 +188,7 @@ def create_app(runner: SimRunner) -> FastAPI:
                 "drop_position": request.drop_position,
                 "drop_quaternion": request.drop_quaternion,
                 "speed": request.speed,
+                "pick_slot": request.pick_slot,
             },
         )
         try:
@@ -229,7 +231,11 @@ def create_app(runner: SimRunner) -> FastAPI:
     @app.post("/sim/boxes/remove", response_model=RemoveBoxResponse)
     async def remove_box(request: RemoveBoxRequest) -> RemoveBoxResponse:
         """Remove a single box by its logical ID."""
-        result = await _send(runner, SimCommand.REMOVE_BOX, {"box_id": request.box_id})
+        result = await _send(
+            runner,
+            SimCommand.REMOVE_BOX,
+            {"box_id": request.box_id, "slot": request.slot, "respawn": request.respawn},
+        )
         return RemoveBoxResponse(**result)
 
     @app.get("/sim/geometry/pick_positions", response_model=PickPositionsResponse)
@@ -247,10 +253,8 @@ def create_app(runner: SimRunner) -> FastAPI:
 
     @app.get("/sim/geometry/pallet_centers", response_model=PalletCentersResponse)
     async def pallet_centers() -> PalletCentersResponse:
-        """Return the pallet center positions (derived from sim geometry)."""
-        from drp_sim.sim_runner import _PALLET_SLOTS, _SLOT_Z_C
-
-        centers = [{"x": x, "y": y, "z": _SLOT_Z_C} for x, y in _PALLET_SLOTS]
+        """Return the pallet center positions (loaded from USD prims at init)."""
+        centers = [{"x": x, "y": y, "z": runner._slot_z} for x, y in runner._pallet_slots]
         return PalletCentersResponse(centers=centers)
 
     @app.get("/sim/buffer/status", response_model=BufferStatusResponse)
@@ -258,6 +262,14 @@ def create_app(runner: SimRunner) -> FastAPI:
         """Return the conveyor buffer occupancy (how many boxes are ready)."""
         result = await _send(runner, SimCommand.GET_BUFFER_STATUS)
         return BufferStatusResponse(**result)
+
+    @app.post("/sim/boxes/images_for_ids", response_model=BoxImagesResponse)
+    async def box_images_for_ids(request: BoxImagesForIdsRequest) -> BoxImagesResponse:
+        """Return stored images for the given box IDs (does not drain the buffer)."""
+        result = await _send(
+            runner, SimCommand.GET_BOX_IMAGES_FOR_IDS, {"box_ids": request.box_ids}
+        )
+        return BoxImagesResponse(**result)
 
     @app.get("/sim/camera", response_model=CameraResponse)
     async def camera() -> CameraResponse:
@@ -280,13 +292,11 @@ def create_app(runner: SimRunner) -> FastAPI:
         await websocket.accept()
         buf.subscribe()
         logger.info("Camera stream connected label=%s fps=%d", label, fps)
-        last_frame_id = -1
         try:
             while True:
-                frame, _w, _h, frame_id = buf.get()
-                if frame and frame_id != last_frame_id:
+                frame, _w, _h, _frame_id = buf.get()
+                if frame:
                     await websocket.send_bytes(frame)
-                    last_frame_id = frame_id
                 await asyncio.sleep(1.0 / fps)
         except WebSocketDisconnect:
             pass

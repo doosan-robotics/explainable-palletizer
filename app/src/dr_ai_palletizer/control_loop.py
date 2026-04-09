@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from dr_ai_palletizer.action_parser import ParsedAction, parse_response
 from dr_ai_palletizer.domain.models import (
@@ -132,12 +134,14 @@ class ControlLoop:
         *,
         max_completion_tokens: int = 2048,
         use_few_shot: bool = False,
+        step_log_dir: str = "",
     ) -> None:
         self._sim = sim_client
         self._inference = inference_client
         self._broadcast = broadcast_event
         self._max_completion_tokens = max_completion_tokens
         self._use_few_shot = use_few_shot
+        self._step_log_dir = Path(step_log_dir) if step_log_dir else None
 
         self.state: str = "idle"
         self._stop_flag: bool = False
@@ -151,6 +155,7 @@ class ControlLoop:
         self._box_stack: list[BoxImage] = []
         self._step_number: int = 0
         self._last_action: str | None = None
+        self._pick_failures: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Public lifecycle
@@ -159,6 +164,7 @@ class ControlLoop:
     async def start(self) -> None:
         """Run the control loop until reset or cancellation."""
         self._stop_flag = False
+        self._pause_event.set()
         self.state = "initializing"
         await self._broadcast({"type": "status", "state": self.state})
 
@@ -168,6 +174,34 @@ class ControlLoop:
         self._box_stack = []
         self._step_number = 0
         self._last_action = None
+        self._pick_failures = {}
+
+        # Seed box stack from boxes already in the conveyor buffer
+        try:
+            buffer_status = await self._sim.get_buffer_status()
+            buffer_box_ids = [bid for bid in buffer_status.get("box_ids", []) if bid]
+            if buffer_box_ids:
+                seeded = await self._sim.get_box_images_for_ids(buffer_box_ids)
+                for raw in seeded:
+                    size = raw["size"]
+                    shape = _size_to_shape(size)
+                    box = BoxImage(
+                        box_id=raw["box_id"],
+                        image_bytes=base64.b64decode(raw["image_b64"]),
+                        weight_kg=raw["weight"],
+                        shape=shape,
+                        width_cm=shape.w * D_UNIT_CM,
+                        length_cm=shape.ln * D_UNIT_CM,
+                        height_cm=shape.h * D_UNIT_CM,
+                    )
+                    self._box_stack.append(box)
+                if self._box_stack:
+                    logger.info(
+                        "Seeded %d box(es) from buffer: %s", len(self._box_stack), buffer_box_ids
+                    )
+                    await self._broadcast_box_stack()
+        except Exception:
+            logger.debug("Buffer pre-seed failed, will pick up images on first poll")
 
         self.state = "running"
         await self._broadcast({"type": "status", "state": self.state})
@@ -200,7 +234,49 @@ class ControlLoop:
         self._pallets = []
         self._step_number = 0
         self._last_action = None
+        self._pick_failures = {}
         self.state = "idle"
+
+    # ------------------------------------------------------------------
+    # Step-level observability
+    # ------------------------------------------------------------------
+
+    def _save_step_artifacts(
+        self,
+        step: int,
+        front: list[BoxImage],
+        scenario_text: str,
+        raw_response: str,
+        parsed: ParsedAction | None,
+    ) -> None:
+        """Write per-step debug artifacts to disk (no-op if step_log_dir unset)."""
+        if self._step_log_dir is None:
+            return
+        step_dir = self._step_log_dir / f"step_{step:04d}"
+        step_dir.mkdir(parents=True, exist_ok=True)
+
+        for i, box in enumerate(front):
+            (step_dir / f"box_{i}_{box.box_id}.png").write_bytes(box.image_bytes)
+
+        (step_dir / "scenario.txt").write_text(scenario_text, encoding="utf-8")
+        (step_dir / "response.txt").write_text(raw_response or "", encoding="utf-8")
+
+        if parsed is not None:
+            action_data = {
+                "action": parsed.action,
+                "box_id": parsed.box_id,
+                "box_ids": parsed.box_ids,
+                "target_pallet": parsed.target_pallet,
+                "position": list(parsed.position) if parsed.position else None,
+                "speed_pct": parsed.speed_pct,
+                "grip_strength": parsed.grip_strength,
+                "reason": parsed.reason,
+                "thinking": parsed.thinking,
+            }
+            (step_dir / "action.json").write_text(
+                json.dumps(action_data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
 
     # ------------------------------------------------------------------
     # Iteration
@@ -235,12 +311,13 @@ class ControlLoop:
             await asyncio.sleep(0.5)
             return
 
-        # 3b. Wait until at least 2 buffer slots are occupied (boxes physically
-        #     present in the pick area) before calling inference.
+        # 3b. Wait until all buffer slots are occupied AND we have enough
+        #     images in the stack before calling inference.
         try:
             status = await self._sim.get_buffer_status()
+            capacity = status.get("capacity", _MAX_PROMPT_BOXES)
             occupied = status.get("occupied", 0)
-            if occupied < 2:
+            if occupied < capacity or len(self._box_stack) < capacity:
                 await self._broadcast({"type": "status", "state": "waiting_for_buffer"})
                 await asyncio.sleep(0.5)
                 return
@@ -268,7 +345,7 @@ class ControlLoop:
             step_number=self._step_number,
             last_action=self._last_action,
         )
-        task_prompt = select_task_prompt(use_few_shot=False)
+        task_prompt = select_task_prompt(use_few_shot=self._use_few_shot)
         full_text = f"{task_prompt}\n\n{scenario_text}"
 
         # Log prompt data for debugging
@@ -316,13 +393,19 @@ class ControlLoop:
                     parsed = parse_response(continuation + answer_only)
                 except (ValueError, Exception) as exc:
                     logger.warning("Continuation also failed: %s", exc)
+                    self._save_step_artifacts(
+                        self._step_number, front, scenario_text, response, None
+                    )
                     await asyncio.sleep(0.5)
                     return
             else:
                 preview = response[:300] if response else "<empty>"
                 logger.warning("Failed to parse model response: %s", preview)
+                self._save_step_artifacts(self._step_number, front, scenario_text, response, None)
                 await asyncio.sleep(0.5)
                 return
+
+        self._save_step_artifacts(self._step_number, front, scenario_text, response, parsed)
 
         # 8. Broadcast reasoning + action (matching UI expected format)
         thinking_text = parsed.thinking or parsed.reason
@@ -511,13 +594,43 @@ class ControlLoop:
             self._pallet_centers[pallet_idx],
         )
 
-        await self._sim.pick_and_place(
-            parsed.box_id,
-            parsed.speed_pct,
-            pick_pose,
-            list(drop_world),
-            drop_quaternion=drop_quat,
+        # Map box_id to buffer slot index so the sim picks the correct box.
+        pick_slot = next(
+            (i for i, b in enumerate(self._box_stack) if b.box_id == parsed.box_id),
+            None,
         )
+
+        try:
+            await self._sim.pick_and_place(
+                parsed.box_id,
+                parsed.speed_pct,
+                pick_pose,
+                list(drop_world),
+                drop_quaternion=drop_quat,
+                pick_slot=pick_slot,
+            )
+        except Exception as exc:
+            box_id = parsed.box_id or ""
+            self._pick_failures[box_id] = self._pick_failures.get(box_id, 0) + 1
+            count = self._pick_failures[box_id]
+            logger.warning("pick_and_place failed for %s (attempt %d): %s", box_id, count, exc)
+            if count >= 3:
+                logger.warning("Box %s failed %d times, escalating to CALL_A_HUMAN", box_id, count)
+                human_action = ParsedAction(
+                    action="CALL_A_HUMAN",
+                    box_ids=[box_id],
+                    reason=f"cuRobo pick failed {count} times",
+                )
+                await self._execute_call_human(human_action)
+                await self._broadcast(
+                    {
+                        "type": "action",
+                        "content": f"CALL_A_HUMAN {box_id} (cuRobo failed {count}\u00d7)",
+                    }
+                )
+                self._pick_failures.pop(box_id, None)
+                return  # handled, don't re-raise
+            raise  # below threshold, let iteration retry
 
         # Update pallet state (use corrected position, not parsed.position)
         self._pallets[pallet_idx] = place_box(
@@ -539,10 +652,20 @@ class ControlLoop:
         logger.info("Box %s removed from stack, remaining: %s", parsed.box_id, remaining)
 
     async def _execute_call_human(self, parsed: ParsedAction) -> None:
-        """Execute a CALL_A_HUMAN action: remove flagged boxes."""
+        """Execute a CALL_A_HUMAN action: remove flagged boxes, then refill.
+
+        Removes all flagged boxes with ``respawn=False`` so no replacement
+        is dispatched mid-removal, then calls ``fill_buffer()`` once to
+        refill in safe far-to-near order (slot 0 → 1 → 2).
+        """
         for box_id in parsed.box_ids:
-            await self._sim.remove_box(box_id)
+            slot = next(
+                (i for i, b in enumerate(self._box_stack) if b.box_id == box_id),
+                None,
+            )
+            await self._sim.remove_box(box_id, slot=slot, respawn=False)
             self._box_stack = [b for b in self._box_stack if b.box_id != box_id]
+        await self._sim.fill_buffer()
 
     # ------------------------------------------------------------------
     # Broadcasting

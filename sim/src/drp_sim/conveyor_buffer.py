@@ -44,6 +44,7 @@ class BufferSlot:
     y_length: float
     box_half_h: float
     assigned_position: tuple[float, float, float]
+    origin_offset_z: float = 0.0
 
 
 @dataclass
@@ -55,6 +56,7 @@ class _InTransit:
     target_slot: int
     y_length: float
     box_half_h: float
+    origin_offset_z: float = 0.0
 
 
 class ConveyorBuffer:
@@ -111,31 +113,13 @@ class ConveyorBuffer:
         """
         hidden = 0
         if self._in_transit is not None:
-            if self._pool is not None:
-                self._pool.release(self._in_transit.prim_path)
-            else:
-                try:
-                    self._in_transit.box_prim.set_linear_velocities(np.zeros((1, 3)))
-                    self._in_transit.box_prim.set_angular_velocities(np.zeros((1, 3)))
-                    self._in_transit.box_prim.set_world_poses(
-                        positions=np.array([[0.0, 0.0, -1000.0]])
-                    )
-                except Exception:
-                    pass
+            self._release_or_hide(self._in_transit.box_prim, self._in_transit.prim_path)
             hidden += 1
             self._in_transit = None
         for slot in self._slots:
             if slot is None:
                 continue
-            if self._pool is not None:
-                self._pool.release(slot.prim_path)
-            else:
-                try:
-                    slot.box_prim.set_linear_velocities(np.zeros((1, 3)))
-                    slot.box_prim.set_angular_velocities(np.zeros((1, 3)))
-                    slot.box_prim.set_world_poses(positions=np.array([[0.0, 0.0, -1000.0]]))
-                except Exception:
-                    pass
+            self._release_or_hide(slot.box_prim, slot.prim_path)
             hidden += 1
         self._slots = [None] * self._length
         self._pending_slots.clear()
@@ -167,9 +151,36 @@ class ConveyorBuffer:
             "capacity": self._length,
         }
 
+    def spawn_one(self) -> dict | None:
+        """Request exactly one box into the next available buffer slot.
+
+        Unlike ``fill()`` which marks all empty slots as pending, this
+        marks only one.  Returns a status dict or ``None`` if the buffer
+        is full (all slots occupied or already pending).
+        """
+        self._active = True
+        self._spawner.auto_spawn_enabled = False
+        self._spawner.box_ttl_steps = None
+
+        self._compact()
+
+        for i in range(self._length):
+            if self._slots[i] is None and i not in self._pending_slots:
+                self._pending_slots.append(i)
+                logger.info("spawn_one: queued slot %d", i)
+                return {
+                    "status": "spawning",
+                    "target_slot": i,
+                    "occupied": self.occupied_count,
+                    "capacity": self._length,
+                }
+        return None
+
     def step(self) -> None:
         if not self._active:
             return
+
+        self._evict_dead_slots()
 
         if self._in_transit is not None:
             self._check_arrival()
@@ -198,6 +209,18 @@ class ConveyorBuffer:
     @property
     def buffer_boxes(self) -> list[tuple[RigidPrim, str]]:
         return [(s.box_prim, s.prim_path) for s in self._slots if s is not None]
+
+    @property
+    def slot_box_ids(self) -> list[str | None]:
+        """Return box_id (from prim_path) for each slot, None if empty."""
+        result = []
+        for slot in self._slots:
+            if slot is None:
+                result.append(None)
+            else:
+                # prim_path is like '/World/box_0010' -> 'box_0010'
+                result.append(slot.prim_path.split("/")[-1])
+        return result
 
     def pop_nearest_box(self) -> tuple[RigidPrim, str] | None:
         """Remove slot 0 (most -Y, closest to robot). Alias for ``pop_box_at(0)``."""
@@ -252,6 +275,16 @@ class ConveyorBuffer:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _release_or_hide(self, box_prim: RigidPrim, prim_path: str) -> None:
+        """Release a box to the pool or hide it at z=-1000."""
+        if self._pool is not None:
+            self._pool.release(prim_path)
+        else:
+            with contextlib.suppress(Exception):
+                box_prim.set_linear_velocities(np.zeros((1, 3)))
+                box_prim.set_angular_velocities(np.zeros((1, 3)))
+                box_prim.set_world_poses(positions=np.array([[0.0, 0.0, -1000.0]]))
+
     def _compact(self) -> None:
         alive: list[BufferSlot] = []
         for slot in self._slots:
@@ -281,6 +314,10 @@ class ConveyorBuffer:
         if not self._pending_slots:
             return
 
+        # Dispatch lowest-index slot first (most -Y, farthest from spawn).
+        # Filling far-to-near prevents physics collisions with occupied slots
+        # when _set_kinematic silently fails on prim_paths_expr prims.
+        self._pending_slots.sort()
         target_slot = self._pending_slots.pop(0)
 
         prim_path = self._spawner.spawn()
@@ -288,6 +325,7 @@ class ConveyorBuffer:
         meta = self._spawner.box_metadata[-1]
         y_length = float(meta["size"][1])
         box_half_h = float(meta["size"][2]) / 2.0
+        origin_offset_z = float(meta.get("origin_offset_z", 0.0))
 
         # 초기 속도/회전 완벽 초기화
         box_prim.set_linear_velocities(np.zeros((1, 3)))
@@ -301,6 +339,7 @@ class ConveyorBuffer:
             target_slot=target_slot,
             y_length=y_length,
             box_half_h=box_half_h,
+            origin_offset_z=origin_offset_z,
         )
 
         self._spawner._boxes = [entry for entry in self._spawner._boxes if entry[1] != prim_path]
@@ -374,6 +413,7 @@ class ConveyorBuffer:
             y_length=transit.y_length,
             box_half_h=transit.box_half_h,
             assigned_position=position,
+            origin_offset_z=transit.origin_offset_z,
         )
 
         logger.debug("Slot %d filled at y=%.3f (%s)", idx, position[1], transit.prim_path)

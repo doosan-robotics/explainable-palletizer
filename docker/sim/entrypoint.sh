@@ -25,4 +25,20 @@ Xvfb :99 -screen 0 1280x720x24 &>/dev/null &
 export DISPLAY=:99
 echo "[sim-server] Xvfb started on DISPLAY=$DISPLAY"
 
+# Isaac Sim bundles warp 1.8.2 which crashes on multi-GPU CUDA stream creation
+# (datacenter GPUs). Replace with the venv's warp 1.12.1.
+ISAACSIM_WARP=$(find /workspace/.venv -path '*/omni.warp.core-*/warp' -not -path '*/omni/warp' -type d 2>/dev/null | head -1)
+VENV_WARP="/workspace/.venv/lib/python3.11/site-packages/warp"
+if [[ -n "$ISAACSIM_WARP" && -d "$VENV_WARP" && ! -f "$ISAACSIM_WARP/.patched" ]]; then
+    echo "[sim-server] Replacing Isaac Sim warp ($(basename "$(dirname "$ISAACSIM_WARP")")) with venv warp"
+    rm -rf "$ISAACSIM_WARP"
+    cp -a "$VENV_WARP" "$ISAACSIM_WARP"
+    touch "$ISAACSIM_WARP/.patched"
+fi
+
+if [[ "$(uname -m)" == "aarch64" ]]; then
+    export OMNI_KIT_CONFIG_OVERRIDES="/rtx/post/denoiser/enabled=false,/rtx/directLighting/denoiser/enabled=false,/rtx/indirectDiffuse/denoiser/enabled=false"
+    echo "[sim-server] aarch64: RTX denoising disabled"
+fi
+
 exec uv run --no-sync python -m drp_sim.server

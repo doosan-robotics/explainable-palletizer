@@ -14,33 +14,38 @@ BACKEND_FILE=".torch-backend"
 # ── Detect CUDA ───────────────────────────────────────────────────────────────
 
 detect_backend() {
-    if ! command -v nvidia-smi &>/dev/null; then
-        echo "cpu"
+    # 1. nvidia-smi: reports the host DRIVER's CUDA version (best for local installs)
+    if command -v nvidia-smi &>/dev/null; then
+        local cuda_version
+        cuda_version=$(nvidia-smi 2>/dev/null | grep -oP 'CUDA Version: \K[0-9]+\.[0-9]+' || true)
+        if [[ -n "$cuda_version" ]]; then
+            local major
+            major=$(echo "$cuda_version" | cut -d. -f1)
+            if (( major >= 13 )); then echo "cu130"; elif (( major >= 12 )); then echo "cu128"; else echo "cpu"; fi
+            return
+        fi
+    fi
+
+    # 2. nvcc: reports the TOOLKIT version (works in Docker builds where
+    #    nvidia-smi is unavailable).  This ensures the installed PyTorch
+    #    matches the base image's CUDA, preventing compilation mismatches
+    #    when cuRobo extensions are built with nvcc.
+    if command -v nvcc &>/dev/null; then
+        local nvcc_major
+        nvcc_major=$(nvcc --version | grep -oP 'V\K[0-9]+' || echo "0")
+        if (( nvcc_major >= 13 )); then echo "cu130"; elif (( nvcc_major >= 12 )); then echo "cu128"; else echo "cpu"; fi
         return
     fi
 
-    local cuda_version
-    cuda_version=$(nvidia-smi 2>/dev/null | grep -oP 'CUDA Version: \K[0-9]+\.[0-9]+' || true)
-
-    if [[ -z "$cuda_version" ]]; then
-        echo "cpu"
-        return
-    fi
-
-    local major
-    major=$(echo "$cuda_version" | cut -d. -f1)
-
-    if (( major >= 13 )); then
-        echo "cu130"
-    elif (( major == 12 )); then
-        echo "cu128"
-    else
-        echo "cpu"
-    fi
+    echo "cpu"
 }
 
 # Allow manual override: TORCH_BACKEND=cu130 make init
-BACKEND="${TORCH_BACKEND:-$(detect_backend)}"
+# "auto" (Docker default) triggers detection from nvcc inside the container.
+BACKEND="${TORCH_BACKEND:-auto}"
+if [[ "$BACKEND" == "auto" ]]; then
+    BACKEND=$(detect_backend)
+fi
 
 if [[ "$BACKEND" == "cpu" ]]; then
     echo "No compatible CUDA driver found. Keeping CPU torch."

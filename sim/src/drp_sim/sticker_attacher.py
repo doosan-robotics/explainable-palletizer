@@ -226,6 +226,7 @@ class StickerAttacher:
         box_prim_path: str,
         parent_scale: tuple[float, float, float] = (1.0, 1.0, 1.0),
         box_type: str = "normal",
+        rng: random.Random | None = None,
     ) -> StickerInfo | None:
         """Attach a randomly chosen sticker for the given box type.
 
@@ -233,7 +234,7 @@ class StickerAttacher:
         """
         if box_type not in self._entries_by_type:
             return None
-        entry = random.choice(self._entries_by_type[box_type])
+        entry = (rng or random).choice(self._entries_by_type[box_type])
         return self._attach_entry(stage, box_prim_path, parent_scale, entry)
 
     def attach_next(
@@ -264,14 +265,16 @@ class StickerAttacher:
         """True when all sequential entries have been consumed."""
         return self._cursor >= len(self._entries_ordered)
 
-    def pick_random(self, box_type: str) -> StickerSelection | None:
+    def pick_random(
+        self, box_type: str, rng: random.Random | None = None
+    ) -> StickerSelection | None:
         """Select a random sticker for the given box type without creating prims.
 
         Used by the pooled spawn path where the sticker mesh already exists.
         """
         if box_type not in self._entries_by_type:
             return None
-        entry = random.choice(self._entries_by_type[box_type])
+        entry = (rng or random).choice(self._entries_by_type[box_type])
         return StickerSelection(
             image_path=entry.image_path,
             aspect_ratio=entry.aspect_ratio,

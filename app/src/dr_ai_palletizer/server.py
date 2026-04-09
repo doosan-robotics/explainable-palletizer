@@ -83,6 +83,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         _broadcast_event,
         max_completion_tokens=settings.max_completion_tokens,
         use_few_shot=not settings.lora_adapter_path,
+        step_log_dir=settings.step_log_dir,
     )
 
     prompt_mode = "fine-tuned (LoRA)" if settings.lora_adapter_path else "few-shot"
