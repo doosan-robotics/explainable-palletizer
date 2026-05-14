@@ -100,6 +100,13 @@ If the host does not meet the GPU or driver requirements, use a GPU workstation 
 | NVIDIA H200 | Hopper | Good target for the 8B model |
 | NVIDIA RTX PRO 6000 / Jetson Thor | Blackwell | `launch.sh` selects CUDA 13 / Jetson vLLM images when needed |
 
+### Hugging Face Access
+
+Cosmos Reason 2 is gated. Before a full run:
+
+1. Create a Hugging Face token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+2. Accept the model license for [nvidia/Cosmos-Reason2-8B](https://huggingface.co/nvidia/Cosmos-Reason2-8B) or [nvidia/Cosmos-Reason2-2B](https://huggingface.co/nvidia/Cosmos-Reason2-2B).
+
 ### Install `uv` and Hugging Face CLI
 
 ```bash
